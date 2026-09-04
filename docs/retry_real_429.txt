@@ -1,0 +1,18 @@
+[1/10] google ← t1_оплата ... [retry] google/gemini-3.7-flash спроба 1/5 впала: ServerError status=503: 503 UNAVAILABLE. : 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+[retry] google/gemini-3.7-flash: чекаю 1 c і пробую ще раз
+[2/10] google ← t2_доставка ... OK  471→148 tok, 6.3 c, $0.000908
+[3/10] google ← t3_технічна ... OK  502→145 tok, 1.6 c, $0.000920
+[4/10] google ← t4_коротке ... [retry] google/gemini-3.7-flash спроба 1/5 впала: ServerError status=503: 503 UNAVAILABLE. : 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+[retry] google/gemini-3.7-flash: чекаю 1 c і пробую ще раз
+[retry] google/gemini-3.7-flash спроба 2/5 впала: ServerError status=503: 503 UNAVAILABLE. : 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+[retry] google/gemini-3.7-flash: чекаю 2 c і пробую ще раз
+[5/10] google ← t5_нерелевантне ... [retry] google/gemini-3.7-flash спроба 1/5 впала: ServerError status=503: 503 UNAVAILABLE. : 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+[retry] google/gemini-3.7-flash: чекаю 1 c і пробую ще раз
+[6/10] groq ← t1_оплата ... OK  549→499 tok, 2.2 c, $0.000382
+[7/10] groq ← t2_доставка ... OK  547→287 tok, 0.9 c, $0.000254
+[8/10] groq ← t3_технічна ... OK  576→717 tok, 1.8 c, $0.000517
+[9/10] groq ← t4_коротке ... OK  520→363 tok, 1.2 c, $0.000296
+[10/10] groq ← t5_нерелевантне ... OK  549→351 tok, 1.3 c, $0.000293
+Записано results.md і results.json
+  google     5/5 правильних, $0.00437, сер. 6.0 c
+  groq       5/5 правильних, $0.00174, сер. 1.5 c

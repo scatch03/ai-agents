@@ -30,6 +30,8 @@ def fake_llm(prompt, system="", provider="google", *, model=None, max_tokens=800
     return {"text": text, "in_tokens": in_tok, "out_tokens": out_tok,
             "stop_reason": "end_turn" if provider != "openai" else "stop",
             "seconds": round(random.uniform(1.2, 2.6), 2),
+            "total_seconds": round(random.uniform(1.2, 2.6), 2),
+            "attempts": 1,
             "cost_usd": llm_mod.cost_usd(model, in_tok, out_tok),
             "provider": provider, "model": model}
 
