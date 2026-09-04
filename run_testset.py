@@ -79,8 +79,22 @@ def summarize(rows: list[dict]) -> list[dict]:
     return out
 
 
+CONCLUSION_FILE = "conclusion.md"
+
+
 def draft_conclusion(summary: list[dict]) -> str:
-    """Чернетка висновку: критерій вибору, а не «цей кращий»."""
+    """
+    Висновок, написаний руками, важливіший за згенерований: якщо поруч лежить
+    conclusion.md — беремо його, інакше генеруємо чернетку з трьох критеріїв.
+    Інакше кожен наступний прогін затирав би текст, який ти щойно написав.
+    """
+    if os.path.exists(CONCLUSION_FILE):
+        with open(CONCLUSION_FILE, encoding="utf-8") as fh:
+            return fh.read().strip()
+    return _draft_conclusion(summary)
+
+
+def _draft_conclusion(summary: list[dict]) -> str:
     if len(summary) < 2:
         return "_Додай другого провайдера, щоб було що порівнювати._"
 
