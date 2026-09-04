@@ -1,0 +1,48 @@
+# Крок 4. Доказ, що retry працює.
+# Команда: python retry_demo.py badkey google
+
+Сценарій: google, підставлений невірний ключ ...0000
+LLM_RETRY_ALL_ERRORS=1 → повторюємо всі помилки: буде 5 спроб і паузи 1→2→4→8 c
+
+[retry] google/gemini-2.5-flash спроба 1/5 впала: ClientError status=400: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'API key not valid. Please pass a valid API key.', 'status': 'INVALID_ARGUMENT', 'details': [{'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': 'API_KEY_INVALID', 'domain': 'googleapis.com', 'metadata': {'service': 'generativelanguage.googleapis.com'}}, {'
+[retry] google/gemini-2.5-flash: чекаю 1 c і пробую ще раз
+[retry] google/gemini-2.5-flash спроба 2/5 впала: ClientError status=400: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'API key not valid. Please pass a valid API key.', 'status': 'INVALID_ARGUMENT', 'details': [{'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': 'API_KEY_INVALID', 'domain': 'googleapis.com', 'metadata': {'service': 'generativelanguage.googleapis.com'}}, {'
+[retry] google/gemini-2.5-flash: чекаю 2 c і пробую ще раз
+[retry] google/gemini-2.5-flash спроба 3/5 впала: ClientError status=400: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'API key not valid. Please pass a valid API key.', 'status': 'INVALID_ARGUMENT', 'details': [{'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': 'API_KEY_INVALID', 'domain': 'googleapis.com', 'metadata': {'service': 'generativelanguage.googleapis.com'}}, {'
+[retry] google/gemini-2.5-flash: чекаю 4 c і пробую ще раз
+[retry] google/gemini-2.5-flash спроба 4/5 впала: ClientError status=400: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'API key not valid. Please pass a valid API key.', 'status': 'INVALID_ARGUMENT', 'details': [{'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': 'API_KEY_INVALID', 'domain': 'googleapis.com', 'metadata': {'service': 'generativelanguage.googleapis.com'}}, {'
+[retry] google/gemini-2.5-flash: чекаю 8 c і пробую ще раз
+[retry] google/gemini-2.5-flash спроба 5/5 впала: ClientError status=400: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'API key not valid. Please pass a valid API key.', 'status': 'INVALID_ARGUMENT', 'details': [{'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': 'API_KEY_INVALID', 'domain': 'googleapis.com', 'metadata': {'service': 'generativelanguage.googleapis.com'}}, {'
+
+ФІНАЛ: LLMError — google/gemini-2.5-flash: усі спроби вичерпано (5/5 спроб) — 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'API key not valid. Please pass a valid API key.', 'status': 'INVALID_ARGUMENT', 'details': [{'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': 'API_KEY_INVALID', 'domain': 'googleapis.com', 'metadata': {'service': 'generativelanguage.googleapis.com'}}, {'@type': 'type.googleapis.com/google.rpc.LocalizedMessage', 'locale': 'en-US', 'message': 'API key not valid. Please pass a valid API key.'}]}}
+
+-----------------------------------------------------------
+# Політика за замовчуванням: 400/401 не повторюємо.
+# Команда: python retry_demo.py fatal google
+
+Сценарій: google, підставлений невірний ключ ...0000
+LLM_RETRY_ALL_ERRORS=0 → 401/403 вважаємо невідновлюваними: падаємо після 1-ї спроби
+
+[retry] google/gemini-2.5-flash спроба 1/5 впала: ClientError status=400: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'API key not valid. Please pass a valid API key.', 'status': 'INVALID_ARGUMENT', 'details': [{'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': 'API_KEY_INVALID', 'domain': 'googleapis.com', 'metadata': {'service': 'generativelanguage.googleapis.com'}}, {'
+[retry] google/gemini-2.5-flash: помилка невідновлювана — повтор не допоможе, падаємо одразу
+
+ФІНАЛ: LLMError — google/gemini-2.5-flash: помилка невідновлювана (1/5 спроб) — 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'API key not valid. Please pass a valid API key.', 'status': 'INVALID_ARGUMENT', 'details': [{'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': 'API_KEY_INVALID', 'domain': 'googleapis.com', 'metadata': {'service': 'generativelanguage.googleapis.com'}}, {'@type': 'type.googleapis.com/google.rpc.LocalizedMessage', 'locale': 'en-US', 'message': 'API key not valid. Please pass a valid API key.'}]}}
+
+-----------------------------------------------------------
+# Офлайн-демо ретраю на імітованому 429 (без мережі й ключів).
+# Команда: python retry_demo.py
+
+Сценарій: провайдер завжди віддає 429. Очікуємо 5 спроб і паузи 1→2→4→8 c.
+
+[retry] fake429/gemini-2.5-flash спроба 1/5 впала: FakeRateLimit status=429: 429 Too Many Requests: rate limit exceeded (імітація)
+[retry] fake429/gemini-2.5-flash: чекаю 1 c і пробую ще раз
+[retry] fake429/gemini-2.5-flash спроба 2/5 впала: FakeRateLimit status=429: 429 Too Many Requests: rate limit exceeded (імітація)
+[retry] fake429/gemini-2.5-flash: чекаю 2 c і пробую ще раз
+[retry] fake429/gemini-2.5-flash спроба 3/5 впала: FakeRateLimit status=429: 429 Too Many Requests: rate limit exceeded (імітація)
+[retry] fake429/gemini-2.5-flash: чекаю 4 c і пробую ще раз
+[retry] fake429/gemini-2.5-flash спроба 4/5 впала: FakeRateLimit status=429: 429 Too Many Requests: rate limit exceeded (імітація)
+[retry] fake429/gemini-2.5-flash: чекаю 8 c і пробую ще раз
+[retry] fake429/gemini-2.5-flash спроба 5/5 впала: FakeRateLimit status=429: 429 Too Many Requests: rate limit exceeded (імітація)
+
+ФІНАЛ: LLMError — fake429/gemini-2.5-flash: усі спроби вичерпано (5/5 спроб) — 429 Too Many Requests: rate limit exceeded (імітація)
+Викликів до провайдера: 5 (очікували 5)

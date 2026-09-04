@@ -1,0 +1,24 @@
+# --- секрети: НІКОЛИ не комітимо ---
+.env
+.env.local
+*.key
+secrets/
+
+# --- python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# --- артефакти прогонів ---
+runs/
+*.log
+
+# --- macOS / IDE ---
+.DS_Store
+.idea/
+.vscode/
+
+# мок-прогін
+results.mock.*
