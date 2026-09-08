@@ -21,7 +21,7 @@ from typing import Any, Callable, Sequence
 from . import threats
 from .classify import Classified, Letter, Usage, classify, triage
 from .config import Config, load_config, telegram_owner_id
-from .digest import MailboxReport, render_digest
+from .digest import MailboxReport, keyboard, render_digest
 from .errors import ToolError
 from .retry import ToolRetryError
 from .state import State
@@ -214,6 +214,7 @@ def digest_run(*, config: Config | None = None, state: State | None = None,
     # вважаються обробленими, а людина їх ніколи не побачить — і не дізнається.
     cursors_moved: list[str] = []
     if sent.get("sent") or sent.get("already_sent"):
+        state.remember_digest_events(event_id for event_id, _ in drafts.values())
         for outcome in outcomes:
             if outcome.ok and outcome.polled and not stopped:
                 state.set_cursor(outcome.mailbox_id, outcome.max_uid,
@@ -297,7 +298,7 @@ def callback_run(update: dict[str, Any], *, state: State | None = None,
 
     if action == "skip":
         cal.decline_event(event_id, state=state)
-        _replace_buttons(edit, state, event_id, "✖️ Пропущено")
+        _refresh_buttons(edit, state)
         return {"ok": True, "action": "skip", "event_id": event_id}
     if action != "add":
         return {"ok": False, "reason": "unknown_action"}
@@ -312,10 +313,8 @@ def callback_run(update: dict[str, Any], *, state: State | None = None,
                state=state, idempotency_key=f"cb-{event_id}-error-{int(time.time())}")
         return {"ok": False, "reason": "create_failed", "error": str(exc)}
 
-    event = state.pending_event(event_id) if event_id in \
-        state.snapshot()["pending_events"] else {}
-    label = _done_label(event)
-    edited = _replace_buttons(edit, state, event_id, label)
+    event = state.event(event_id) or {}
+    edited = _refresh_buttons(edit, state)
     if not edited:
         # Ранкове повідомлення видалили — редагувати нічого. Подія створена,
         # і це головне; мовчати не можна, тому шлемо окреме підтвердження.
@@ -326,18 +325,16 @@ def callback_run(update: dict[str, Any], *, state: State | None = None,
             "buttons_edited": edited}
 
 
-def _done_label(event: dict[str, Any]) -> str:
-    try:
-        start = datetime.fromisoformat(event["start"])
-        return f"✅ Додано · {start.strftime('%d.%m %H:%M')}"
-    except (KeyError, ValueError):
-        return "✅ Додано"
-
-
-def _replace_buttons(edit: Callable[..., dict], state: State, event_id: str,
-                     label: str) -> bool:
+def _refresh_buttons(edit: Callable[..., dict], state: State) -> bool:
+    """
+    Перемальовує клавіатуру ЦІЛКОМ за поточним станом усіх чернеток дайджесту.
+    Часткового оновлення в Telegram немає: якщо надіслати один рядок, решта
+    кнопок зникне — і сусідні події стануть недосяжними, хоча чернетки живі.
+    """
     message_id = state.last_digest_message_id
     if not message_id:
         return False
-    markup = {"inline_keyboard": [[{"text": label, "callback_data": "noop"}]]}
+    events = [(eid, state.event(eid)) for eid in state.digest_events]
+    events = [(eid, ev) for eid, ev in events if ev]
+    markup = keyboard(events) or {"inline_keyboard": []}
     return bool(edit(message_id, markup).get("edited"))

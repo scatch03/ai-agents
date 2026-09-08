@@ -296,6 +296,46 @@ class TestCallback(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertTrue(sent and sent[0].startswith("✅ Додано"))
 
+    def test_other_buttons_survive_a_press(self):
+        """
+        Знайдено вживу: натискання однієї кнопки стирало всю клавіатуру,
+        і сусідня подія ставала недосяжною, лишившись живою чернеткою
+        у стані. Telegram замінює клавіатуру ЦІЛКОМ — перемальовувати
+        треба всі рядки.
+        """
+        start = datetime.now(timezone.utc) + timedelta(days=2)
+        second = self.state.put_pending_event(
+            title="переліт до Анталії", start=start.isoformat(),
+            end=(start + timedelta(hours=3)).isoformat(), source="work/102")
+        self.state.remember_digest_events([self.event_id, second])
+        self.state.save()
+
+        sent_markup = {}
+
+        def edit(message_id, markup):
+            sent_markup.update(markup)
+            return {"edited": True}
+
+        callback_run(self.update(), state=self.state, owner_id=777,
+                     answer=self.answer, creator=self.creator, edit=edit)
+
+        rows = sent_markup["inline_keyboard"]
+        self.assertEqual(len(rows), 2, "друга кнопка не має зникати")
+        self.assertIn("✅ Додано", rows[0][0]["text"])
+        self.assertIn("переліт до Анталії", rows[1][0]["text"])
+        self.assertEqual(rows[1][0]["callback_data"], f"add:{second}")
+
+    def test_declined_row_is_marked_not_removed(self):
+        self.state.remember_digest_events([self.event_id])
+        self.state.save()
+        sent_markup = {}
+        callback_run(self.update(data="skip:"), state=self.state, owner_id=777,
+                     answer=self.answer, creator=self.creator,
+                     edit=lambda mid, markup: (sent_markup.update(markup),
+                                               {"edited": True})[1])
+        row = sent_markup["inline_keyboard"][0]
+        self.assertIn("Пропущено", row[0]["text"])
+
     def test_skip_declines_without_creating(self):
         result = callback_run(self.update(data="skip:"), state=self.state,
                               owner_id=777, answer=self.answer,

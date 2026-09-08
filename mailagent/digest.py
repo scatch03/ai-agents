@@ -288,23 +288,40 @@ def _compose(records, by_category, shown, *, mailboxes, day, event_drafts,
                     reply_markup=_buttons(event_drafts), dropped=dropped)
 
 
+def _when(event: dict[str, Any]) -> str:
+    start = datetime.fromisoformat(event["start"])
+    return (start.strftime("%d.%m") if event.get("all_day")
+            else start.strftime("%d.%m %H:%M"))
+
+
+def event_row(event_id: str, event: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Один рядок клавіатури — за поточним станом чернетки. Підпис має сам себе
+    пояснювати: клавіатура кріпиться до ПОВІДОМЛЕННЯ, а не до рядка тексту,
+    тож зіставити її з пунктом можна лише за назвою й часом.
+    """
+    title = event["title"][:28]
+    status = event.get("status", "pending")
+    if status == "created":
+        return [{"text": f"✅ Додано · {_when(event)}", "callback_data": "noop"}]
+    if status == "declined":
+        return [{"text": f"✖️ Пропущено · {title}", "callback_data": "noop"}]
+    return [
+        {"text": f"➕ {title} · {_when(event)}", "callback_data": f"add:{event_id}"},
+        {"text": "✖️", "callback_data": f"skip:{event_id}"},
+    ]
+
+
+def keyboard(events: Sequence[tuple[str, dict[str, Any]]]) -> dict | None:
+    """
+    Уся клавіатура цілком. Telegram замінює її повністю — часткових оновлень
+    немає, тож перемальовувати треба всі рядки, інакше сусідні події зникнуть
+    з очей, лишившись живими чернетками у стані.
+    """
+    rows = [event_row(event_id, event)
+            for event_id, event in list(events)[:MAX_EVENT_BUTTONS]]
+    return {"inline_keyboard": rows} if rows else None
+
+
 def _buttons(event_drafts: dict[int, tuple[str, dict[str, Any]]]) -> dict | None:
-    """
-    Кнопки збираються ВНИЗУ повідомлення — Telegram не вміє кріпити їх до
-    рядка. Тому підпис має сам себе пояснювати: у ньому назва події й час,
-    а не безлике «Додати».
-    """
-    if not event_drafts:
-        return None
-    rows = []
-    for uid, (event_id, event) in list(event_drafts.items())[:MAX_EVENT_BUTTONS]:
-        start = datetime.fromisoformat(event["start"])
-        title = event["title"][:28]
-        when = (start.strftime("%d.%m") if event.get("all_day")
-                else start.strftime("%d.%m %H:%M"))
-        rows.append([
-            {"text": f"➕ {title} · {when}",
-             "callback_data": f"add:{event_id}"},
-            {"text": "✖️", "callback_data": f"skip:{event_id}"},
-        ])
-    return {"inline_keyboard": rows}
+    return keyboard(list(event_drafts.values()))

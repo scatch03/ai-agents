@@ -133,6 +133,22 @@ class State:
         }
         return event_id
 
+    def remember_digest_events(self, event_ids: "Iterable[str]") -> None:
+        """
+        Порядок кнопок під дайджестом. Без цього списку неможливо перемалювати
+        клавіатуру: Telegram замінює її ЦІЛКОМ, тож треба знати всі рядки,
+        а не лише той, який щойно натиснули.
+        """
+        self._data["digest_events"] = list(event_ids)
+
+    @property
+    def digest_events(self) -> list[str]:
+        return list(self._data.get("digest_events") or [])
+
+    def event(self, event_id: str) -> dict[str, Any] | None:
+        """Сирий доступ: на відміну від pending_event, не кидає на протермінованій."""
+        return self._data["pending_events"].get(event_id)
+
     def pending_event(self, event_id: str) -> dict[str, Any]:
         event = self._data["pending_events"].get(event_id)
         if event is None:
