@@ -133,6 +133,26 @@ class TestHonestNotes(unittest.TestCase):
             self.assertIn(f"— {word}", result.text)
 
 
+class TestOtherIsVisible(unittest.TestCase):
+    def test_other_shows_its_items(self):
+        """
+        other — кошик-запобіжник: туди падає й те, чого модель не зрозуміла.
+        Сховати його під лічильник означає сховати власну помилку.
+        """
+        records = [rec(uid=1, category="other",
+                       summary="(не класифіковано) дивний лист")]
+        result = render_digest(records, mailboxes=boxes(), day=DAY)
+        self.assertIn("не класифіковано", result.text)
+
+    def test_marketing_stays_collapsed_with_clear_wording(self):
+        records = [rec(uid=i, category="marketing", summary=f"розсилка {i}")
+                   for i in range(1, 5)]
+        result = render_digest(records, mailboxes=boxes(), day=DAY)
+        self.assertIn("marketing (4) — розсилки, переказів не показую",
+                      result.text)
+        self.assertNotIn("розсилка 1", result.text)
+
+
 class TestBudget(unittest.TestCase):
     def test_never_exceeds_telegram_limit(self):
         records = [rec(uid=i, category="work", summary="довгий переказ " + "я" * 150)

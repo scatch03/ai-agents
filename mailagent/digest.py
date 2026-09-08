@@ -28,7 +28,11 @@ MAX_TEXT = 4096
 MAX_EVENT_BUTTONS = 8
 
 # Рубрики, які показуються лічильником, без переказів кожного листа.
-COLLAPSED = ("marketing", "other")
+# Тільки marketing: розсилки — це навмисний шум, їх ніхто не читає.
+# other сюди НЕ входить, хоч і виглядає схоже: це кошик-запобіжник, і туди
+# ж падають листи, яких модель не класифікувала. Поява чогось в other —
+# сигнал, що агент чогось не зрозумів, і його треба бачити, а не ховати.
+COLLAPSED = ("marketing",)
 # Рубрики, які показуються завжди, навіть з одним листом.
 ALWAYS_SHOWN = ("security", "finance")
 # У якому порядку відбирати пункти, коли не вистачає місця (з кінця).
@@ -242,7 +246,7 @@ def _compose(records, by_category, shown, *, mailboxes, day, event_drafts,
         builder.add(header, bold=True)
         builder.add(_threat_summary(group))
         if category in COLLAPSED:
-            builder.add(" — без деталей")
+            builder.add(" — розсилки, переказів не показую")
         builder.newline()
 
         limit = shown[category]
