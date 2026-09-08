@@ -25,8 +25,8 @@ from mailagent.tools import mail                                   # noqa: E402
 from tests.fakes import FakeIMAP                                   # noqa: E402
 
 DAY = date(2026, 9, 3)
-WORK = Mailbox(id="work_gmail", host="h", user="u")
-NEWS = Mailbox(id="news_gmail", host="h", user="u")
+WORK = Mailbox(id="work_gmail", host="h", user="me@work.example")
+NEWS = Mailbox(id="news_gmail", host="h", user="me@news.example")
 
 
 def config(*boxes: Mailbox) -> Config:
@@ -136,7 +136,7 @@ class TestCursorDiscipline(unittest.TestCase):
         conns = mail.Connections(conf, opener=lambda box: good if box.id == "work_gmail" else bad)
         result = digest_run(config=conf, state=fresh_state(), conns=conns,
                             llm_fn=model(), sender=Sender(), day=DAY)
-        self.assertIn("news_gmail недоступна", result["text"])
+        self.assertIn("me@news.example недоступна", result["text"])
 
 
 class TestFirstRun(unittest.TestCase):
@@ -159,6 +159,26 @@ class TestFirstRun(unittest.TestCase):
         second = digest_run(config=conf, state=state, conns=conns, llm_fn=model(),
                             sender=Sender(), day=date(2026, 9, 4))
         self.assertEqual(second["letters"], 0)
+
+
+class TestMailboxLabels(unittest.TestCase):
+    def test_address_is_used_not_internal_id(self):
+        state = fresh_state()
+        result, _ = run(state, imap_with([101]))
+        self.assertIn("[me@work.example]", result["text"])
+        self.assertNotIn("[work_gmail]", result["text"])
+
+    def test_same_address_twice_keeps_them_distinguishable(self):
+        """Дві теки одного акаунта: самої адреси замало, щоб їх розрізнити."""
+        inbox = Mailbox(id="inbox", host="h", user="me@work.example")
+        archive = Mailbox(id="archive", host="h", user="me@work.example",
+                          folder="Archive")
+        conf = config(inbox, archive)
+        conns = mail.Connections(conf, opener=lambda box: imap_with([101]))
+        result = digest_run(config=conf, state=fresh_state(), conns=conns,
+                            llm_fn=model(), sender=Sender(), day=DAY)
+        self.assertIn("me@work.example / inbox", result["text"])
+        self.assertIn("me@work.example / archive", result["text"])
 
 
 class TestIdempotency(unittest.TestCase):

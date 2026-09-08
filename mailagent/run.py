@@ -74,16 +74,19 @@ class MailboxOutcome:
     remaining: int = 0
     polled: bool = False        # чи дійшли до неї взагалі
 
+    label: str = ""             # адреса скриньки для тексту дайджесту
+
     def report(self) -> MailboxReport:
         if not self.polled:
-            return MailboxReport(self.mailbox_id, status="error",
+            return MailboxReport(self.mailbox_id, self.label, status="error",
                                  error="не опитана: спрацював ліміт запуску")
         if not self.ok:
-            return MailboxReport(self.mailbox_id, status="error", error=self.error)
+            return MailboxReport(self.mailbox_id, self.label, status="error",
+                                 error=self.error)
         if not self.letters:
-            return MailboxReport(self.mailbox_id, status="empty")
+            return MailboxReport(self.mailbox_id, self.label, status="empty")
         uids = [letter.uid for letter in self.letters]
-        return MailboxReport(self.mailbox_id, count=len(uids),
+        return MailboxReport(self.mailbox_id, self.label, count=len(uids),
                              uid_from=min(uids), uid_to=max(uids),
                              remaining=self.remaining)
 
@@ -95,7 +98,7 @@ def collect(config: Config, state: State, conns: mail.Connections, budget: Budge
             *, limit: int | None = None) -> list[MailboxOutcome]:
     outcomes: list[MailboxOutcome] = []
     for box in config.mailboxes:
-        outcome = MailboxOutcome(mailbox_id=box.id)
+        outcome = MailboxOutcome(mailbox_id=box.id, label=box.user)
         outcomes.append(outcome)
         if budget.exceeded():
             continue
@@ -190,7 +193,9 @@ def digest_run(*, config: Config | None = None, state: State | None = None,
         if owns_conns:
             conns.close_all()
 
-    notes = [f"{o.mailbox_id} недоступна: {o.error}" for o in outcomes if not o.ok]
+    labels = _labels(config)
+    notes = [f"{labels.get(o.mailbox_id, o.mailbox_id)} недоступна: {o.error}"
+             for o in outcomes if not o.ok]
     stopped = budget.exceeded()
     if stopped:
         notes.append(f"неповний дайджест: спрацював {stopped}")
@@ -199,7 +204,7 @@ def digest_run(*, config: Config | None = None, state: State | None = None,
     rendered = render_digest(
         records, mailboxes=[o.report() for o in outcomes],
         day=datetime.combine(day, datetime.min.time()), event_drafts=drafts,
-        notes=notes)
+        notes=notes, labels=_labels(config))
 
     if dry_run:
         return _summary(rendered, records, outcomes, budget, sent=None,
@@ -226,6 +231,26 @@ def digest_run(*, config: Config | None = None, state: State | None = None,
 
     return _summary(rendered, records, outcomes, budget, sent=sent,
                     cursors_moved=cursors_moved)
+
+
+def _report_with_label(outcome: "MailboxOutcome", labels: dict[str, str]):
+    report = outcome.report()
+    report.label = labels.get(outcome.mailbox_id, outcome.mailbox_id)
+    return report
+
+
+def _labels(config: Config) -> dict[str, str]:
+    """
+    Як називати скриньки в тексті — адресою, а не внутрішнім id.
+    Якщо дві скриньки на одній адресі (різні теки того самого акаунта),
+    адреси замало: додаємо id, інакше в дайджесті вони нерозрізненні.
+    """
+    users = [box.user for box in config.mailboxes]
+    return {
+        box.id: (box.user if users.count(box.user) == 1
+                 else f"{box.user} / {box.id}")
+        for box in config.mailboxes
+    }
 
 
 def _make_drafts(records: Sequence[Classified], state: State, *, ttl_days: int

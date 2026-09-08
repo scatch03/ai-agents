@@ -322,6 +322,26 @@ class TestTriage(unittest.TestCase):
         self.assertEqual(calls["n"], 0)
 
 
+class TestPrompt(unittest.TestCase):
+    def test_every_category_is_explained_to_the_model(self):
+        """
+        Самі назви рубрик надто скупі — модель домислює їхній сенс і вагається
+        між прогонами. Опис має бути для кожної, інакше пропущена рубрика
+        стає найменш передбачуваною.
+        """
+        from mailagent.classify import CATEGORY_HINTS, CLASSIFY_SYSTEM
+        self.assertEqual(set(CATEGORY_HINTS), set(CATEGORIES))
+        for name, hint in CATEGORY_HINTS.items():
+            self.assertIn(f"{name} — {hint}", CLASSIFY_SYSTEM)
+
+    def test_industry_newsletters_named_explicitly(self):
+        """Галузеві розсилки за темою схожі на work, за формою на marketing."""
+        from mailagent.classify import CATEGORY_HINTS
+        hint = CATEGORY_HINTS["worldnews"].lower()
+        self.assertIn("it-розсилк", hint)
+        self.assertIn("dou", hint)
+
+
 class TestAggregates(unittest.TestCase):
     def test_counts_cover_all_categories(self):
         records, _ = classify([letter(1)], llm_fn=model({"letters": [record(1)]}))

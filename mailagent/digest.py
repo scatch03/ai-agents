@@ -63,6 +63,8 @@ def utf16_len(text: str) -> int:
 class MailboxReport:
     """Що сталося з однією скринькою за цей запуск."""
     mailbox_id: str
+    # Як скриньку називати в тексті: адреса, а не внутрішній id.
+    label: str = ""
     count: int = 0
     uid_from: int | None = None
     uid_to: int | None = None
@@ -70,16 +72,20 @@ class MailboxReport:
     error: str = ""
     remaining: int = 0          # скільки листів не влізло в limit
 
+    @property
+    def name(self) -> str:
+        return self.label or self.mailbox_id
+
     def line(self) -> str:
         if self.status == "error":
-            return f"{self.mailbox_id} — недоступна ({self.error})"
+            return f"{self.name} — недоступна ({self.error})"
         if self.status == "empty" or not self.count:
-            return f"{self.mailbox_id} 0 — порожньо"
+            return f"{self.name} 0 — порожньо"
         span = (f", uid {self.uid_from}–{self.uid_to}"
                 if self.uid_from is not None else "")
         tail = f", ще {self.remaining} чекають" if self.remaining else ""
         word = plural(self.count, "лист", "листи", "листів")
-        return f"{self.mailbox_id} {self.count} {word}{span}{tail}"
+        return f"{self.name} {self.count} {word}{span}{tail}"
 
 
 @dataclass
@@ -142,10 +148,11 @@ def _threat_summary(records: Sequence[Classified]) -> str:
         f"{THREAT_LABELS[k][0]} {counts[k]} {THREAT_LABELS[k][1]}" for k in order)
 
 
-def _item_lines(record: Classified) -> list[str]:
+def _item_lines(record: Classified, labels: dict[str, str]) -> list[str]:
     """Пункт дайджесту. Позначений лист отримує другий рядок із причиною."""
     icon = THREAT_LABELS[record.threat.kind][0] + " " if record.threat.kind != "none" else ""
-    head = f"• {icon}{record.summary} [{record.mailbox_id}]"
+    box = labels.get(record.mailbox_id, record.mailbox_id)
+    head = f"• {icon}{record.summary} [{box}]"
     lines = [head]
     if record.threat.kind != "none":
         phrase = THREAT_LABELS[record.threat.kind][2]
@@ -154,14 +161,14 @@ def _item_lines(record: Classified) -> list[str]:
     return lines
 
 
-def _action_lines(records: Sequence[Classified]) -> list[str]:
+def _action_lines(records: Sequence[Classified], labels: dict[str, str]) -> list[str]:
     out = []
     for record in records:
         if not record.needs_action:
             continue
         deadline = f", до {record.deadline}" if record.deadline else ""
-        out.append(f"• {record.summary} ({record.category}{deadline}) "
-                   f"[{record.mailbox_id}]")
+        box = labels.get(record.mailbox_id, record.mailbox_id)
+        out.append(f"• {record.summary} ({record.category}{deadline}) [{box}]")
     return out
 
 
@@ -170,6 +177,7 @@ def render_digest(records: Sequence[Classified], *,
                   day: datetime,
                   event_drafts: dict[int, tuple[str, dict[str, Any]]] | None = None,
                   notes: Iterable[str] = (),
+                  labels: dict[str, str] | None = None,
                   budget: int = MAX_TEXT) -> Rendered:
     """
     Збирає повідомлення. `event_drafts` — uid → (event_id, чернетка події);
@@ -178,6 +186,8 @@ def render_digest(records: Sequence[Classified], *,
     їх генерує код і тільки код, модель підробити їх не може.
     """
     event_drafts = event_drafts or {}
+    # Скриньку в тексті називаємо так, як її знає людина, — адресою.
+    labels = labels or {report.mailbox_id: report.name for report in mailboxes}
     by_category: dict[str, list[Classified]] = {c: [] for c in CATEGORIES}
     for record in records:
         by_category[record.category].append(record)
@@ -185,15 +195,15 @@ def render_digest(records: Sequence[Classified], *,
     # Спершу вирішуємо, скільки пунктів показувати, і лише потім рендеримо:
     # бюджет довжини розподіляється наперед, а не обрізається по факту.
     shown = _plan(by_category, budget=budget, mailboxes=mailboxes,
-                  notes=list(notes), records=records, day=day,
-                  events=len(event_drafts))
+                  notes=list(notes), records=records, day=day, labels=labels)
     return _compose(records, by_category, shown, mailboxes=mailboxes, day=day,
-                    event_drafts=event_drafts, notes=list(notes))
+                    event_drafts=event_drafts, notes=list(notes), labels=labels)
 
 
 def _plan(by_category: dict[str, list[Classified]], *, budget: int,
           mailboxes: Sequence[MailboxReport], notes: list[str],
-          records: Sequence[Classified], day: datetime, events: int) -> dict[str, int]:
+          records: Sequence[Classified], day: datetime,
+          labels: dict[str, str]) -> dict[str, int]:
     """
     Скільки пунктів показати в кожній рубриці. Починаємо з «усе» і знімаємо
     з найменш термінових, доки не вліземо. Позначені листи не знімаються
@@ -205,7 +215,7 @@ def _plan(by_category: dict[str, list[Classified]], *, budget: int,
 
     while True:
         draft = _compose(records, by_category, shown, mailboxes=mailboxes, day=day,
-                         event_drafts={}, notes=notes)
+                         event_drafts={}, notes=notes, labels=labels)
         if draft.utf16_length <= budget - 120:  # запас під кнопки і примітку
             return shown
         for category in DROP_ORDER:
@@ -218,14 +228,14 @@ def _plan(by_category: dict[str, list[Classified]], *, budget: int,
 
 
 def _compose(records, by_category, shown, *, mailboxes, day, event_drafts,
-             notes) -> Rendered:
+             notes, labels) -> Rendered:
     builder = _Builder()
     total = len(records)
     builder.add(f"Дайджест {_format_date(day)}", bold=True)
     builder.add(f" — {total} {plural(total, 'лист', 'листи', 'листів')}")
     builder.newline(2)
 
-    actions = _action_lines(records)
+    actions = _action_lines(records, labels)
     if actions:
         builder.add("⚠️ Потребує дії", bold=True)
         builder.newline()
@@ -262,7 +272,7 @@ def _compose(records, by_category, shown, *, mailboxes, day, event_drafts,
                 if category not in COLLAPSED:
                     dropped += 1
                 continue
-            for line in _item_lines(record):
+            for line in _item_lines(record, labels):
                 builder.add(line)
                 builder.newline()
             listed += 1
