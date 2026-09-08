@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.mailagent.digest</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/alex/work/ai-agents/.venv/bin/python</string>
+    <!-- -u: без буферизації, інакше лог лишається порожнім
+         до самого кінця процесу і збій нічим діагностувати -->
+    <string>-u</string>
+    <string>-m</string>
+    <string>mailagent</string>
+    <string>digest</string>
+  </array>
+
+  <!-- .env, mailboxes.json і .state/ шукаються відносно робочої теки -->
+  <key>WorkingDirectory</key>
+  <string>/Users/alex/work/ai-agents</string>
+
+  <!-- Якщо о 8:00 ноут спав, launchd запустить завдання одразу після
+       пробудження. Пропущений ранок не зникає, лише зсувається. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>8</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/alex/Library/Logs/mailagent/digest.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/alex/Library/Logs/mailagent/digest.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

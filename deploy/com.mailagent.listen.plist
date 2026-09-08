@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.mailagent.listen</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/alex/work/ai-agents/.venv/bin/python</string>
+    <!-- -u: без буферизації, інакше лог лишається порожнім
+         до самого кінця процесу і збій нічим діагностувати -->
+    <string>-u</string>
+    <string>-m</string>
+    <string>mailagent</string>
+    <string>listen</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/alex/work/ai-agents</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- Довгий опит getUpdates: процес має жити постійно і підніматися
+       після падіння мережі. ЛИШЕ ОДИН слухач на бота — два конкурують
+       за оновлення і крадуть натискання одне в одного. -->
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/alex/Library/Logs/mailagent/listen.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/alex/Library/Logs/mailagent/listen.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

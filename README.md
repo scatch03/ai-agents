@@ -134,6 +134,7 @@ Anthropic і OpenAI у таблиці немає — на обох акаунт�
 | `mailagent/run.py` | дві точки входу: `digest_run` і `callback_run`, бюджет запуску |
 | `mailagent/__main__.py` | CLI: `digest`, `listen`, `state` |
 | `scripts/google_oauth.py` | одноразовий OAuth-обмін для Google Calendar |
+| `deploy/*.plist` | завдання launchd: щоденний дайджест і слухач кнопок |
 
 ## Як запускати
 
@@ -180,13 +181,64 @@ python scripts/google_oauth.py --create-calendar
 з календарями, які створив сам, і не дотягнеться до особистого навіть
 у разі повного зламу. Якщо Google цей доступ відхилить, є `--full-scope`.
 
+## Автозапуск на macOS
+
+Два завдання `launchd`: дайджест о 8:00 і слухач натискань, що тримається
+постійно.
+
+```bash
+cp deploy/com.mailagent.*.plist ~/Library/LaunchAgents/ && mkdir -p ~/Library/Logs/mailagent
+```
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mailagent.digest.plist
+```
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mailagent.listen.plist
+```
+
+Перевірити стан і логи:
+
+```bash
+launchctl list | grep mailagent && tail -f ~/Library/Logs/mailagent/*.log
+```
+
+Запустити дайджест негайно, не чекаючи 8:00 (ключ ідемпотентності не дасть
+надіслати двічі за добу):
+
+```bash
+launchctl kickstart -k gui/$(id -u)/com.mailagent.digest
+```
+
+Зупинити:
+
+```bash
+launchctl bootout gui/$(id -u)/com.mailagent.listen
+```
+
+Три деталі, на яких легко втратити час:
+
+- **`-u` у `ProgramArguments` обов'язковий.** Без нього Python буферизує вивід,
+  лог лишається порожнім до кінця процесу, і збій нічим діагностувати.
+- **Слухач має бути один.** Два процеси `getUpdates` крадуть натискання одне
+  в одного: кожне оновлення віддається лише раз. Перед `bootstrap` перевір,
+  що ручний `python -m mailagent listen` не запущений.
+- **`WorkingDirectory` вирішує все.** `.env`, `mailboxes.json` і `.state/`
+  шукаються відносно неї; без цього рядка завдання впаде на пошуку конфігу.
+
+Якщо о 8:00 ноут спав, `launchd` запустить завдання одразу після пробудження —
+пропущений ранок не зникає, лише зсувається. Курсор при цьому не прив'язаний
+до доби: після тижня відсутності агент забере всі накопичені листи, до стелі
+`max_letters_per_mailbox` за запуск, а решту — наступного разу.
+
 ## Запуск тестів
 
 ```bash
 python -m unittest discover -s tests -t .
 ```
 
-107 тестів, мережі не потребують: IMAP, HTTP, модель і Google підмінені фейками.
+125 тестів, мережі не потребують: IMAP, HTTP, модель і Google підмінені фейками.
 
 ## Що з архітектури вже втілене в коді
 

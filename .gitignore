@@ -37,3 +37,6 @@ mailboxes.json
 *~
 .env.*
 !.env.example
+
+# логи локальних запусків
+*.log
