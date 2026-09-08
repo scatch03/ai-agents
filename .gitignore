@@ -29,3 +29,11 @@ state.json
 
 # конфіг зі справжніми адресами скриньок
 mailboxes.json
+
+# своп-файли редакторів: .env.swp містить повний вміст .env
+*.swp
+*.swo
+*.swn
+*~
+.env.*
+!.env.example
