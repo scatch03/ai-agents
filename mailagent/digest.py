@@ -300,8 +300,10 @@ def _buttons(event_drafts: dict[int, tuple[str, dict[str, Any]]]) -> dict | None
     for uid, (event_id, event) in list(event_drafts.items())[:MAX_EVENT_BUTTONS]:
         start = datetime.fromisoformat(event["start"])
         title = event["title"][:28]
+        when = (start.strftime("%d.%m") if event.get("all_day")
+                else start.strftime("%d.%m %H:%M"))
         rows.append([
-            {"text": f"➕ {title} · {start.strftime('%d.%m %H:%M')}",
+            {"text": f"➕ {title} · {when}",
              "callback_data": f"add:{event_id}"},
             {"text": "✖️", "callback_data": f"skip:{event_id}"},
         ])

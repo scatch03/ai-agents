@@ -219,6 +219,25 @@ class TestEventValidation(unittest.TestCase):
         past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
         self.assertIsNone(self.classify_with(self.event(start=past, end=past)))
 
+    def test_verbal_confidence_accepted(self):
+        """
+        Знайдено на справжній пошті: модель повертає "high" замість 0.9,
+        і подія з датою, часом і адресою мовчки зникала на float("high").
+        """
+        self.assertIsNotNone(self.classify_with(self.event(confidence="high")))
+
+    def test_verbal_low_confidence_dropped(self):
+        self.assertIsNone(self.classify_with(self.event(confidence="low")))
+
+    def test_missing_confidence_does_not_kill_a_concrete_event(self):
+        """Дата розібралась, загроз немає, кнопку тисне людина — цього досить."""
+        event = self.event()
+        del event["confidence"]
+        self.assertIsNotNone(self.classify_with(event))
+
+    def test_numeric_string_confidence(self):
+        self.assertIsNotNone(self.classify_with(self.event(confidence="0.95")))
+
     def test_low_confidence_dropped(self):
         self.assertIsNone(self.classify_with(self.event(confidence=0.3)))
 
@@ -234,6 +253,36 @@ class TestEventValidation(unittest.TestCase):
         self.assertIsNone(self.classify_with(
             self.event(), sender="Ощадбанк <no-reply@0schadbank.net>"))
 
+    def test_all_day_event_from_date_without_time(self):
+        """
+        «Kurz 26.9.2026» — дата без часу. Раніше така подія просто відпадала,
+        хоча це найчастіший вигляд дати в пошті: курси, бронювання, доставка.
+        """
+        future = (datetime.now(timezone.utc) + timedelta(days=18)).date().isoformat()
+        result = self.classify_with(self.event(start=future, end=None))
+        self.assertIsNotNone(result)
+        self.assertTrue(result["all_day"])
+        self.assertEqual(result["start"], future)
+
+    def test_all_day_end_is_exclusive_next_day(self):
+        """У Google Calendar кінець події на цілий день — наступний день."""
+        day = (datetime.now(timezone.utc) + timedelta(days=5)).date()
+        result = self.classify_with(self.event(start=day.isoformat(), end=None))
+        self.assertEqual(result["end"], (day + timedelta(days=1)).isoformat())
+
+    def test_all_day_today_is_still_valid(self):
+        """О 18:00 подія «на сьогодні» ще не минула."""
+        today = datetime.now(timezone.utc).date().isoformat()
+        self.assertIsNotNone(self.classify_with(self.event(start=today, end=None)))
+
+    def test_multi_day_booking_keeps_range(self):
+        start = (datetime.now(timezone.utc) + timedelta(days=30)).date()
+        end = start + timedelta(days=2)
+        result = self.classify_with(self.event(start=start.isoformat(),
+                                               end=end.isoformat()))
+        self.assertEqual(result["start"], start.isoformat())
+        self.assertEqual(result["end"], (end + timedelta(days=1)).isoformat())
+
     def test_missing_end_gets_default_hour(self):
         result = self.classify_with(self.event(end=None))
         start = datetime.fromisoformat(result["start"])
@@ -248,10 +297,19 @@ class TestTriage(unittest.TestCase):
                         llm_fn=model({"needs_body": [1, 999]}))
         self.assertEqual(wanted, {1})
 
-    def test_ceiling_on_share(self):
-        letters = [letter(i) for i in range(1, 31)]
-        wanted = triage(letters, llm_fn=model({"needs_body": list(range(1, 31))}))
-        self.assertLessEqual(len(wanted), 10)
+    def test_ceiling_on_share_for_big_batches(self):
+        letters = [letter(i) for i in range(1, 91)]
+        wanted = triage(letters, llm_fn=model({"needs_body": list(range(1, 91))}))
+        self.assertLessEqual(len(wanted), 30)
+
+    def test_small_batch_is_not_starved(self):
+        """
+        На 5 листах третина — це одне тіло, і класифікація сліпне саме тоді,
+        коли тіла найдешевші. Знайдено на справжній пошті.
+        """
+        letters = [letter(i) for i in range(1, 6)]
+        wanted = triage(letters, llm_fn=model({"needs_body": [1, 2, 3, 4, 5]}))
+        self.assertEqual(len(wanted), 5)
 
     def test_empty_input_makes_no_call(self):
         calls = {"n": 0}

@@ -236,6 +236,7 @@ def _make_drafts(records: Sequence[Classified], state: State, *, ttl_days: int
         event_id = state.put_pending_event(
             title=record.event["title"], start=record.event["start"],
             end=record.event["end"], location=record.event.get("location", ""),
+            all_day=record.event.get("all_day", False),
             source=f"{record.mailbox_id}/{record.uid}", ttl_days=ttl_days)
         drafts[record.uid] = (event_id, record.event)
     return drafts

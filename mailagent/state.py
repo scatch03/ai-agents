@@ -121,12 +121,12 @@ class State:
 
     # -------------------------------------------------- чернетки подій
     def put_pending_event(self, *, title: str, start: str, end: str,
-                          source: str, location: str = "",
+                          source: str, location: str = "", all_day: bool = False,
                           ttl_days: int = 7) -> str:
         event_id = "ev_" + secrets.token_hex(3)
         self._data["pending_events"][event_id] = {
             "title": title, "start": start, "end": end, "location": location,
-            "source": source, "status": "pending",
+            "all_day": all_day, "source": source, "status": "pending",
             "created_at": _now().isoformat(),
             "expires_at": (_now() + timedelta(days=ttl_days)).isoformat(),
             "google_event_id": None,

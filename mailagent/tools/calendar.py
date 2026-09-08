@@ -106,18 +106,26 @@ def create_calendar_event(event_id: str, *, state: State,
     if event["status"] == "declined":
         raise ToolError(f"чернетку {event_id} власник уже відхилив", status=409)
 
+    all_day = bool(event.get("all_day"))
     start = datetime.fromisoformat(event["start"])
-    if start < datetime.now(timezone.utc):
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    # Подія на цілий день «сьогодні» ще не минула — звіряємо з початком доби.
+    if start < (now.replace(hour=0, minute=0, second=0, microsecond=0)
+                if all_day else now):
         raise ToolError(
             f"подія {event_id} у минулому ({event['start']}) — не створюю",
             status=400)
 
     gid = _google_event_id(event_id)
+    # Google розрізняє події з часом і на цілий день полем: dateTime проти date.
+    key = "date" if all_day else "dateTime"
     body = {
         "id": gid,
         "summary": event["title"][:120],
-        "start": {"dateTime": event["start"]},
-        "end": {"dateTime": event["end"]},
+        "start": {key: event["start"]},
+        "end": {key: event["end"]},
         # Джерело завжди видно: з якого листа приїхала подія.
         "description": f"Створено з листа: {event['source']}",
         # attendees НЕ передаємо — див. докстрінг модуля.

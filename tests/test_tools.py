@@ -278,6 +278,21 @@ class TestCalendar(unittest.TestCase):
         self.assertNotIn("attendees", body)
         self.assertEqual(client.posted[0][1]["params"]["sendUpdates"], "none")
 
+    def test_all_day_event_uses_date_not_datetime(self):
+        """Google розрізняє події з часом і на цілий день полем date/dateTime."""
+        state = fresh_state()
+        day = (datetime.now(timezone.utc) + timedelta(days=3)).date()
+        event_id = state.put_pending_event(
+            title="курс", start=day.isoformat(),
+            end=(day + timedelta(days=1)).isoformat(),
+            source="work/1", all_day=True)
+        client = self.client_returning(200, {"id": "abc", "htmlLink": "http://x"})
+        cal.create_calendar_event(event_id, state=state, client=client,
+                                  token_provider=lambda **kw: "tok")
+        body = client.posted[0][1]["json"]
+        self.assertEqual(body["start"], {"date": day.isoformat()})
+        self.assertNotIn("dateTime", body["start"])
+
     def test_second_press_creates_nothing(self):
         state = fresh_state()
         event_id = self.draft(state)
