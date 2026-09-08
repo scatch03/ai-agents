@@ -133,6 +133,7 @@ Anthropic і OpenAI у таблиці немає — на обох акаунт�
 | `mailagent/digest.py` | складання тексту: рубрики, позначки, джерела, кнопки, бюджет 4096 |
 | `mailagent/run.py` | дві точки входу: `digest_run` і `callback_run`, бюджет запуску |
 | `mailagent/__main__.py` | CLI: `digest`, `listen`, `state` |
+| `scripts/google_oauth.py` | одноразовий OAuth-обмін для Google Calendar |
 
 ## Як запускати
 
@@ -161,13 +162,31 @@ python -m mailagent listen
 python -m mailagent state
 ```
 
+### Google Calendar, один раз
+
+Створи OAuth-клієнт типу Desktop app у Google Cloud Console, увімкни
+Calendar API, впиши `GOOGLE_OAUTH_CLIENT_ID` і `GOOGLE_OAUTH_CLIENT_SECRET`
+у `.env`, і запусти:
+
+```bash
+python scripts/google_oauth.py --create-calendar
+```
+
+Скрипт відкриє згоду Google, зловить код на `127.0.0.1` і надрукує
+`GOOGLE_OAUTH_REFRESH_TOKEN` та id створеного календаря — вписати їх у `.env`
+маєш ти сам, у твій `.env` скрипт не лізе.
+
+Доступ береться найвужчий — `calendar.app.created`: агент працює лише
+з календарями, які створив сам, і не дотягнеться до особистого навіть
+у разі повного зламу. Якщо Google цей доступ відхилить, є `--full-scope`.
+
 ## Запуск тестів
 
 ```bash
 python -m unittest discover -s tests -t .
 ```
 
-99 тестів, мережі не потребують: IMAP, HTTP, модель і Google підмінені фейками.
+107 тестів, мережі не потребують: IMAP, HTTP, модель і Google підмінені фейками.
 
 ## Що з архітектури вже втілене в коді
 
@@ -201,9 +220,9 @@ python -m unittest discover -s tests -t .
 
 ## Чого ще немає
 
-Одноразового OAuth-обміну для Google Calendar: `create_calendar_event` чекає
-на `GOOGLE_OAUTH_REFRESH_TOKEN` у `.env`, а помічника для його отримання ще
-не написано. Решта конвеєра працює.
+Нічого обов'язкового: конвеєр повний від IMAP до Telegram і Google Calendar.
+Не зроблено навмисно — планувальник (це справа `cron` або `launchd`,
+а не агента) і вебхук замість довгого опиту (потребує білої адреси).
 
 ## Розбіжність з архітектурою, яку виявила реалізація
 
