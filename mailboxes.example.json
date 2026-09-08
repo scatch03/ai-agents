@@ -20,6 +20,7 @@
     "digest_hour": 8,
     "calendar_name": "Пошта (агент)",
     "max_letters_per_mailbox": 200,
+    "first_run_days": 1,
     "body_max_chars": 3000,
     "pending_event_ttl_days": 7
   }

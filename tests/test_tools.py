@@ -70,6 +70,44 @@ class TestListNewEmails(unittest.TestCase):
         self.assertTrue(result["truncated"])
         self.assertEqual(result["remaining"], 7)
 
+    def test_first_run_does_not_read_the_whole_archive(self):
+        """
+        У скриньці тисячі листів. Перший запуск (курсор 0) має взяти вікно
+        за кілька днів, а не всю історію: інакше перший же ранок коштує
+        і грошей, і дайджесту на п'ять тисяч пунктів.
+        """
+        archive = list(range(1, 5001))
+        recent = list(range(4971, 5001))     # те, що поверне SEARCH SINCE
+        fake = self.make(archive)
+        fake.recent_uids = recent
+        with conns_with(fake) as c:
+            result = mail.list_new_emails("work", 0, conns=c)
+        self.assertEqual(len(result["messages"]), len(recent))
+        self.assertEqual(result["messages"][0]["uid"], 4971)
+        search = [c for c in fake.calls if c[:2] == ("uid", "search")][0]
+        self.assertIn("SINCE", search, "перший запуск має шукати за датою, не за UID")
+
+    def test_first_run_still_capped_by_limit(self):
+        """Навіть свіжих листів може бути забагато — стеля limit працює і тут."""
+        fake = self.make(list(range(1, 501)))
+        fake.recent_uids = list(range(1, 501))
+        with conns_with(fake) as c:
+            result = mail.list_new_emails("work", 0, conns=c, limit=50)
+        self.assertEqual(len(result["messages"]), 50)
+        self.assertTrue(result["truncated"])
+        self.assertEqual(result["remaining"], 450)
+
+    def test_lost_state_does_not_reread_everything(self):
+        """
+        Якщо файл стану загубився, курсор знову 0 — і поведінка та сама, що
+        на першому запуску. Втрата стану не має обертатися лавиною пошти.
+        """
+        fake = self.make(list(range(1, 3001)))
+        fake.recent_uids = [2999, 3000]
+        with conns_with(fake) as c:
+            result = mail.list_new_emails("work", 0, conns=c)
+        self.assertEqual([m["uid"] for m in result["messages"]], [2999, 3000])
+
     def test_uidvalidity_change_resets(self):
         fake = self.make([1, 2], uidvalidity=99)
         with conns_with(fake) as c:

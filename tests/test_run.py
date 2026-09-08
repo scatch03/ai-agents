@@ -139,6 +139,28 @@ class TestCursorDiscipline(unittest.TestCase):
         self.assertIn("news_gmail недоступна", result["text"])
 
 
+class TestFirstRun(unittest.TestCase):
+    def test_archive_is_skipped_and_never_comes_back(self):
+        """
+        Перший запуск на скриньці з тисячами листів: у дайджест іде вікно
+        за добу, а курсор стає одразу за ним — архів не приїде й завтра.
+        """
+        state = fresh_state()
+        imap = imap_with(list(range(1, 5001)))
+        imap.recent_uids = [4999, 5000]
+        result, _ = run(state, imap)
+        self.assertEqual(result["letters"], 2)
+        self.assertEqual(state.cursor("work_gmail").uid, 5000)
+
+        # Другий запуск: пошук уже за UID, і старе не підтягується.
+        imap2 = imap_with(list(range(1, 5001)))
+        conf = config(WORK)
+        conns = mail.Connections(conf, opener=lambda box: imap2)
+        second = digest_run(config=conf, state=state, conns=conns, llm_fn=model(),
+                            sender=Sender(), day=date(2026, 9, 4))
+        self.assertEqual(second["letters"], 0)
+
+
 class TestIdempotency(unittest.TestCase):
     def test_second_run_same_day_sends_nothing(self):
         state = fresh_state()

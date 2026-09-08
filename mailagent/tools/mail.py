@@ -191,9 +191,12 @@ def list_new_emails(mailbox_id: str, since_uid: int, *, conns: Connections,
     if effective_since > 0:
         criteria = ("UID", f"{effective_since + 1}:*")
     else:
-        # Перший запуск (або перенумерація): беремо добу, а не всю історію.
-        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%d-%b-%Y")
-        criteria = ("SINCE", yesterday)
+        # Перший запуск (або перенумерація) — НЕ читаємо весь архів: у скриньці
+        # цілком можуть лежати тисячі листів. Беремо вікно в кілька днів,
+        # решта лишається непрочитаною назавжди, і це навмисно.
+        days = getattr(conns.config, "first_run_days", 1)
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%d-%b-%Y")
+        criteria = ("SINCE", since)
 
     status, data = conn.uid("search", None, *criteria)
     _check(status, data, what=f"UID SEARCH {criteria}", mailbox_id=mailbox_id)

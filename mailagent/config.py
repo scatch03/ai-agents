@@ -52,6 +52,9 @@ class Config:
     digest_hour: int = 8
     calendar_name: str = "Пошта (агент)"
     max_letters_per_mailbox: int = 200
+    # Скільки днів забирати на першому запуску (або після зміни UIDVALIDITY).
+    # У скриньці можуть лежати тисячі листів — весь архів нам не потрібен.
+    first_run_days: int = 1
     body_max_chars: int = 3000
     pending_event_ttl_days: int = 7
     _by_id: dict[str, Mailbox] = field(default_factory=dict, repr=False, compare=False)
@@ -140,6 +143,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
         digest_hour=int(settings.get("digest_hour", 8)),
         calendar_name=settings.get("calendar_name", "Пошта (агент)"),
         max_letters_per_mailbox=int(settings.get("max_letters_per_mailbox", 200)),
+        first_run_days=int(settings.get("first_run_days", 1)),
         body_max_chars=int(settings.get("body_max_chars", 3000)),
         pending_event_ttl_days=int(settings.get("pending_event_ttl_days", 7)),
         _by_id={box.id: box for box in mailboxes},

@@ -11,9 +11,13 @@ class FakeIMAP:
     def __init__(self, *, uidvalidity: int = 42, uids: list[int] | None = None,
                  headers: dict[int, str] | None = None,
                  bodies: dict[int, bytes] | None = None,
-                 snippets: dict[int, bytes] | None = None):
+                 snippets: dict[int, bytes] | None = None,
+                 recent_uids: list[int] | None = None):
         self.uidvalidity = uidvalidity
         self.uids = uids or []
+        # Що поверне SEARCH SINCE: у справжній скриньці це лише свіжі листи,
+        # а не весь архів. Якщо не задано — усі (стара поведінка фейка).
+        self.recent_uids = recent_uids
         self.headers = headers or {}
         self.bodies = bodies or {}
         self.snippets = snippets or {}
@@ -37,6 +41,9 @@ class FakeIMAP:
                 since = int(criteria[1].split(":")[0]) - 1
                 # Квирк справжнього IMAP: діапазон завжди віддає останній лист.
                 found = [u for u in self.uids if u > since] or self.uids[-1:]
+            elif criteria and criteria[0] == "SINCE":
+                found = list(self.recent_uids if self.recent_uids is not None
+                             else self.uids)
             else:
                 found = list(self.uids)
             return "OK", [" ".join(str(u) for u in found).encode()]
