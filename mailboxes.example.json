@@ -1,0 +1,26 @@
+{
+  "mailboxes": [
+    {
+      "id": "work_gmail",
+      "host": "imap.gmail.com",
+      "port": 993,
+      "user": "you@gmail.com",
+      "folder": "INBOX"
+    },
+    {
+      "id": "personal_imap",
+      "host": "imap.example.com",
+      "port": 993,
+      "user": "you@example.com",
+      "folder": "INBOX"
+    }
+  ],
+  "settings": {
+    "timezone": "Europe/Kyiv",
+    "digest_hour": 8,
+    "calendar_name": "Пошта (агент)",
+    "max_letters_per_mailbox": 200,
+    "body_max_chars": 3000,
+    "pending_event_ttl_days": 7
+  }
+}
