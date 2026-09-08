@@ -226,6 +226,13 @@ class TestTelegram(unittest.TestCase):
                               idempotency_key="k", caller=fake)
         self.assertLessEqual(len(fake.calls[0][1]["text"]), telegram.MAX_TEXT)
 
+    def test_stale_callback_answer_is_reported_not_raised(self):
+        fake = FakeTelegram(errors={"answerCallbackQuery":
+                                    ToolError("query is too old", status=400)})
+        result = telegram.answer_callback("cb1", "Додаю…", caller=fake)
+        self.assertFalse(result["answered"])
+        self.assertIn("too old", result["reason"])
+
     def test_edit_failure_is_reported_not_raised(self):
         """Напис на кнопці — косметика; подія в календарі важливіша."""
         fake = FakeTelegram(errors={"editMessageReplyMarkup":

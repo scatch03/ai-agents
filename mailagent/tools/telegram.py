@@ -93,12 +93,22 @@ def answer_callback(callback_id: str, text: str = "", *,
     Підтверджує натискання кнопки. Викликається ПЕРШИМ, до будь-якої роботи:
     доки бот не відповів, у клієнті крутиться індикатор, а попереду похід
     у Google Calendar на кілька секунд.
+
+    Помилку не кидає: підтвердження — це косметика, а робота важливіша.
     """
     payload: dict[str, Any] = {"callback_query_id": callback_id}
     if text:
         payload["text"] = text[:200]
-    caller("answerCallbackQuery", payload, client=client)
-    return {"answered": True}
+    try:
+        caller("answerCallbackQuery", payload, client=client)
+        return {"answered": True, "reason": None}
+    except ToolError as exc:
+        # НЕ кидаємо далі. Telegram тримає натискання до доби, а сам
+        # callback_query живе значно менше: кнопку, натиснуту на телефоні
+        # при закритому ноуті, ми обробимо після пробудження, і тоді
+        # відповідати вже нема на що. Прибрати індикатор не вийшло —
+        # але це не привід не створювати подію.
+        return {"answered": False, "reason": str(exc)}
 
 
 def edit_message_buttons(message_id: int, reply_markup: dict[str, Any], *,

@@ -296,6 +296,22 @@ class TestCallback(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertTrue(sent and sent[0].startswith("✅ Додано"))
 
+    def test_stale_callback_still_creates_the_event(self):
+        """
+        Кнопку натиснули з телефона при закритому ноуті. Telegram тримає
+        натискання до доби, але сам callback_query застаріває раніше —
+        відповісти вже нема на що. Це не привід не створювати подію.
+        """
+        def stale_answer(callback_id, text=""):
+            self.order.append("answer")
+            return {"answered": False, "reason": "query is too old"}
+
+        result = callback_run(self.update(), state=self.state, owner_id=777,
+                              answer=stale_answer, creator=self.creator,
+                              edit=lambda mid, markup: {"edited": True})
+        self.assertTrue(result["ok"])
+        self.assertIn("create", self.order)
+
     def test_other_buttons_survive_a_press(self):
         """
         Знайдено вживу: натискання однієї кнопки стирало всю клавіатуру,
