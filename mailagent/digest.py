@@ -151,8 +151,11 @@ def _threat_summary(records: Sequence[Classified]) -> str:
 def _item_lines(record: Classified, labels: dict[str, str]) -> list[str]:
     """Пункт дайджесту. Позначений лист отримує другий рядок із причиною."""
     icon = THREAT_LABELS[record.threat.kind][0] + " " if record.threat.kind != "none" else ""
-    box = labels.get(record.mailbox_id, record.mailbox_id)
-    head = f"• {icon}{record.summary} [{box}]"
+    # Порожня мітка = скринька одна, і підписувати кожен рядок нічим:
+    # альтернативи немає, тож це був би чистий шум у кожному пункті.
+    box = labels.get(record.mailbox_id, "")
+    suffix = f" [{box}]" if box else ""
+    head = f"• {icon}{record.summary}{suffix}"
     lines = [head]
     if record.threat.kind != "none":
         phrase = THREAT_LABELS[record.threat.kind][2]
@@ -167,8 +170,9 @@ def _action_lines(records: Sequence[Classified], labels: dict[str, str]) -> list
         if not record.needs_action:
             continue
         deadline = f", до {record.deadline}" if record.deadline else ""
-        box = labels.get(record.mailbox_id, record.mailbox_id)
-        out.append(f"• {record.summary} ({record.category}{deadline}) [{box}]")
+        box = labels.get(record.mailbox_id, "")
+        suffix = f" [{box}]" if box else ""
+        out.append(f"• {record.summary} ({record.category}{deadline}){suffix}")
     return out
 
 
@@ -186,8 +190,11 @@ def render_digest(records: Sequence[Classified], *,
     їх генерує код і тільки код, модель підробити їх не може.
     """
     event_drafts = event_drafts or {}
-    # Скриньку в тексті називаємо так, як її знає людина, — адресою.
-    labels = labels or {report.mailbox_id: report.name for report in mailboxes}
+    if labels is None:
+        # Мітка в пункті потрібна лише тоді, коли скриньок кілька. Блок
+        # «📮 Джерела» називає скриньку завжди — там вона несе інформацію.
+        labels = ({report.mailbox_id: report.name for report in mailboxes}
+                  if len(mailboxes) > 1 else {})
     by_category: dict[str, list[Classified]] = {c: [] for c in CATEGORIES}
     for record in records:
         by_category[record.category].append(record)

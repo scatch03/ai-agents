@@ -162,9 +162,17 @@ class TestFirstRun(unittest.TestCase):
 
 
 class TestMailboxLabels(unittest.TestCase):
-    def test_address_is_used_not_internal_id(self):
+    def test_single_mailbox_has_no_per_line_suffix(self):
         state = fresh_state()
         result, _ = run(state, imap_with([101]))
+        self.assertNotIn("[me@work.example]", result["text"])
+        self.assertIn("me@work.example 1 лист", result["text"])
+
+    def test_two_mailboxes_use_addresses_not_ids(self):
+        conf = config(WORK, NEWS)
+        conns = mail.Connections(conf, opener=lambda box: imap_with([101]))
+        result = digest_run(config=conf, state=fresh_state(), conns=conns,
+                            llm_fn=model(), sender=Sender(), day=DAY)
         self.assertIn("[me@work.example]", result["text"])
         self.assertNotIn("[work_gmail]", result["text"])
 

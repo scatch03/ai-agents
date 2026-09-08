@@ -204,7 +204,9 @@ def digest_run(*, config: Config | None = None, state: State | None = None,
     rendered = render_digest(
         records, mailboxes=[o.report() for o in outcomes],
         day=datetime.combine(day, datetime.min.time()), event_drafts=drafts,
-        notes=notes, labels=_labels(config))
+        notes=notes,
+        # Підписувати кожен рядок має сенс лише за кількох скриньок.
+        labels=labels if len(config.mailboxes) > 1 else {})
 
     if dry_run:
         return _summary(rendered, records, outcomes, budget, sent=None,

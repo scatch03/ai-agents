@@ -68,6 +68,23 @@ class TestEntities(unittest.TestCase):
         self.assertTrue(result.entities, "без entities заголовки будуть сірими")
 
 
+class TestMailboxSuffix(unittest.TestCase):
+    def test_single_mailbox_needs_no_suffix(self):
+        """Одна скринька — підпис у кожному рядку не додає нічого, крім шуму."""
+        result = render_digest([rec()], mailboxes=boxes(), day=DAY)
+        self.assertNotIn("[", result.text)
+        # У «Джерелах» скринька названа однаково в обох випадках.
+        self.assertIn("work_gmail", result.text)
+
+    def test_two_mailboxes_get_suffixes(self):
+        reports = [MailboxReport("a", "me@a.example", count=1, uid_from=1, uid_to=1),
+                   MailboxReport("b", "me@b.example", count=1, uid_from=2, uid_to=2)]
+        records = [rec(uid=1, mailbox="a"), rec(uid=2, mailbox="b")]
+        result = render_digest(records, mailboxes=reports, day=DAY)
+        self.assertIn("[me@a.example]", result.text)
+        self.assertIn("[me@b.example]", result.text)
+
+
 class TestThreatVisibility(unittest.TestCase):
     def test_flagged_letter_visible_in_collapsed_category(self):
         """marketing показується лічильником — але не для позначених листів."""
