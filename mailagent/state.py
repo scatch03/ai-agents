@@ -16,7 +16,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from .errors import ToolError
 
@@ -48,8 +48,8 @@ class State:
     def _read(self) -> dict[str, Any]:
         if not self.path.exists():
             return {"version": STATE_VERSION, "cursors": {}, "sent_keys": {},
-                    "pending_events": {}, "last_digest_date": None,
-                    "last_digest_message_id": None}
+                    "pending_events": {}, "known_senders": {},
+                    "last_digest_date": None, "last_digest_message_id": None}
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
@@ -62,6 +62,7 @@ class State:
         data.setdefault("cursors", {})
         data.setdefault("sent_keys", {})
         data.setdefault("pending_events", {})
+        data.setdefault("known_senders", {})
         return data
 
     def save(self) -> None:
@@ -162,6 +163,22 @@ class State:
         for eid in stale:
             del self._data["pending_events"][eid]
         return len(stale)
+
+    # ------------------------------------------------- відомі відправники
+    @property
+    def known_senders(self) -> set[str]:
+        """
+        Домени, від яких уже приходило. Потрібні перевірці «перший контакт»:
+        терміновість плюс прохання про оплату від незнайомця важать більше,
+        ніж те саме від підрядника, з яким листуєшся рік.
+        """
+        return set(self._data.setdefault("known_senders", {}))
+
+    def note_senders(self, domains: "Iterable[str]") -> None:
+        seen = self._data.setdefault("known_senders", {})
+        for domain in domains:
+            if domain:
+                seen[domain] = seen.get(domain, 0) + 1
 
     # ------------------------------------------------------------- сервіс
     def snapshot(self) -> dict[str, Any]:
