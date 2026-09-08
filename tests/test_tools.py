@@ -78,6 +78,29 @@ class TestListNewEmails(unittest.TestCase):
         self.assertEqual(result["uidvalidity"], 99)
         self.assertEqual([m["uid"] for m in result["messages"]], [1, 2])
 
+    def test_raw_utf8_header_is_recovered(self):
+        """
+        Сирий UTF-8 у From — нестандартно, але трапляється. Зі стандартною
+        політикою парсера воно перетворюється на крякозябри, і це видно
+        саме там, де відправник важливий найбільше — у рядку про фішинг.
+        """
+        fake = FakeIMAP(uids=[101], headers={
+            101: "From: Ощадбанк <no-reply@0schadbank.net>\r\n"
+                 "Subject: Підтвердіть платіж\r\n\r\n"})
+        with conns_with(fake) as c:
+            result = mail.list_new_emails("work", 100, conns=c)
+        self.assertIn("Ощадбанк", result["messages"][0]["from"])
+        self.assertNotIn("\ufffd", result["messages"][0]["subject"])
+
+    def test_rfc2047_header_decoded(self):
+        fake = FakeIMAP(uids=[101], headers={
+            101: "From: =?UTF-8?B?0J7RidCw0LTQsdCw0L3Qug==?= <a@b.com>\r\n"
+                 "Subject: =?UTF-8?B?0J/RgNC40LLRltGC?=\r\n\r\n"})
+        with conns_with(fake) as c:
+            result = mail.list_new_emails("work", 100, conns=c)
+        self.assertIn("Ощадбанк", result["messages"][0]["from"])
+        self.assertEqual(result["messages"][0]["subject"], "Привіт")
+
     def test_auth_results_parsed(self):
         fake = self.make([101])
         with conns_with(fake) as c:

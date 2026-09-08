@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import email
+import email.policy
 import imaplib
 import re
 from datetime import datetime, timedelta, timezone
@@ -89,13 +90,34 @@ def _check(status: str, data, *, what: str, mailbox_id: str):
     return data
 
 
-def _decode_header(raw: str | None) -> str:
+def _parse_message(raw: bytes) -> Message:
+    """
+    policy=default обов'язкова: зі стандартною compat32 сирий UTF-8 у заголовку
+    (нестандартно, але в реальній пошті трапляється) перетворюється на
+    крякозябри безповоротно. default зберігає байти сурогатами, і їх ще можна
+    полагодити — див. _decode_header.
+    """
+    try:
+        return email.message_from_bytes(raw, policy=email.policy.default)
+    except Exception:  # noqa: BLE001 — на геть кривому листі відкочуємось
+        return email.message_from_bytes(raw)
+
+
+def _decode_header(raw: object) -> str:
     if not raw:
         return ""
+    value = str(raw)
     try:
-        return str(make_header(decode_header(raw))).strip()
+        value = str(make_header(decode_header(value)))
     except Exception:  # noqa: BLE001 — кривий заголовок не привід падати
-        return raw.strip()
+        pass
+    if any("\ud800" <= ch <= "\udfff" for ch in value):
+        # Байти, які парсер не зміг витлумачити, приїхали сурогатами.
+        try:
+            value = value.encode("utf-8", "surrogateescape").decode("utf-8")
+        except UnicodeDecodeError:
+            value = value.encode("utf-8", "replace").decode("utf-8")
+    return value.strip()
 
 
 _AUTH_RE = re.compile(r"\b(dkim|spf|dmarc)=(\w+)", re.I)
@@ -208,7 +230,7 @@ def _fetch_headers(conn, uids: list[int], *, mailbox_id: str) -> list[dict[str, 
         uid = _uid_of(meta)
         if uid is None:
             continue
-        headers = email.message_from_bytes(payload)
+        headers = _parse_message(payload)
         auth = _auth_results(headers.get("Authentication-Results"))
         out.append({
             "uid": uid,
@@ -381,7 +403,7 @@ def fetch_email_body(mailbox_id: str, uid: int, *, conns: Connections,
         raise ToolError(f"{mailbox_id}: UID {uid} not found (message deleted or moved)",
                         status=404)
 
-    message = email.message_from_bytes(pairs[0][1])
+    message = _parse_message(pairs[0][1])
     text, links, attachments = _text_of(message)
     text = _strip_quotes_and_signature(text)
     text = re.sub(r"[ \t]+", " ", text)

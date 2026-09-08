@@ -164,6 +164,15 @@ class State:
             del self._data["pending_events"][eid]
         return len(stale)
 
+    # ------------------------------------------------ курсор оновлень Telegram
+    @property
+    def last_update_id(self) -> int:
+        return int(self._data.get("last_update_id", 0))
+
+    def set_last_update_id(self, value: int) -> None:
+        """Щоб після перезапуску не обробити ті самі натискання вдруге."""
+        self._data["last_update_id"] = max(value, self.last_update_id)
+
     # ------------------------------------------------- відомі відправники
     @property
     def known_senders(self) -> set[str]:
