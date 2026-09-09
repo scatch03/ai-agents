@@ -225,6 +225,32 @@ class TestLimits(unittest.TestCase):
         self.assertIn("бюджет", result["stopped_by"])
 
 
+class TestHardDeadline(unittest.TestCase):
+    def test_hung_call_does_not_hold_the_run_forever(self):
+        """
+        Бюджет часу перевіряється МІЖ кроками, тож виклик, що завис усередині
+        SDK, обходив його повністю: 9 вересня запуск провисів 57 хвилин
+        замість десяти. Будильник — останній запобіжник.
+        """
+        import time as _time
+        from mailagent.run import RunTimeout
+
+        def hanging(*args, **kwargs):
+            _time.sleep(30)   # виклик, який ніколи не повернеться вчасно
+            return {"text": "{}", "in_tokens": 0, "out_tokens": 0,
+                    "cost_usd": 0.0, "seconds": 0.0}
+
+        conf = config(WORK)
+        conns = mail.Connections(conf, opener=lambda box: imap_with([101]))
+        started = _time.monotonic()
+        with self.assertRaises(RunTimeout):
+            digest_run(config=conf, state=fresh_state(), conns=conns,
+                       llm_fn=hanging, sender=Sender(), day=DAY,
+                       limits=Limits(max_seconds=0.5, hard_margin_seconds=0.3))
+        self.assertLess(_time.monotonic() - started, 5,
+                        "будильник мав обірвати зависання")
+
+
 class TestDryRun(unittest.TestCase):
     def test_dry_run_sends_nothing_and_moves_nothing(self):
         state = fresh_state()

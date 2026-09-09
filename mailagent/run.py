@@ -13,7 +13,10 @@ callback_run — коли власник натиснув кнопку: моде
 
 from __future__ import annotations
 
+import signal
+import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any, Callable, Sequence
@@ -36,6 +39,10 @@ class Limits:
     max_iterations: int = 100
     max_cost_usd: float = 0.10
     max_seconds: float = 600.0
+    # Наскільки будильник відстає від м'якого бюджету часу. Спершу має
+    # спрацювати штатна зупинка з «неповним дайджестом», і лише якщо вона
+    # недосяжна — бо виклик завис усередині SDK — рве будильник.
+    hard_margin_seconds: float = 60.0
 
 
 @dataclass
@@ -159,6 +166,34 @@ def fetch_bodies(letters: Sequence[Letter], wanted: set[int],
 # --------------------------------------------------------------------------
 # digest_run
 # --------------------------------------------------------------------------
+class RunTimeout(RuntimeError):
+    """Спрацював жорсткий ліміт часу на весь запуск."""
+
+
+@contextmanager
+def _deadline(seconds: float):
+    """
+    Будильник на весь запуск. Бюджет часу перевіряється між кроками, тому
+    один виклик, що завис усередині SDK, обходить його повністю: саме так
+    ранковий дайджест 9 вересня провисів 57 хвилин замість десяти.
+    Працює лише в головному потоці — інакше просто нічого не робить.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    def _fire(signum, frame):
+        raise RunTimeout(f"запуск перевищив {seconds:.0f} c і зупинений будильником")
+
+    previous = signal.signal(signal.SIGALRM, _fire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
 def digest_run(*, config: Config | None = None, state: State | None = None,
                conns: mail.Connections | None = None,
                llm_fn: Callable[..., dict] | None = None,
@@ -174,21 +209,22 @@ def digest_run(*, config: Config | None = None, state: State | None = None,
 
     try:
         state.purge_expired_events()
-        outcomes = collect(config, state, conns, budget)
-        letters = [letter for outcome in outcomes for letter in outcome.letters]
+        with _deadline(budget.limits.max_seconds + budget.limits.hard_margin_seconds):
+            outcomes = collect(config, state, conns, budget)
+            letters = [letter for outcome in outcomes for letter in outcome.letters]
 
-        kwargs = {"llm_fn": llm_fn} if llm_fn else {}
-        if letters and not budget.exceeded():
-            budget.tick()
-            wanted = triage(letters, usage=budget.usage, **kwargs)
-            fetch_bodies(letters, wanted, conns, budget,
-                         max_chars=config.body_max_chars)
+            kwargs = {"llm_fn": llm_fn} if llm_fn else {}
+            if letters and not budget.exceeded():
+                budget.tick()
+                wanted = triage(letters, usage=budget.usage, **kwargs)
+                fetch_bodies(letters, wanted, conns, budget,
+                             max_chars=config.body_max_chars)
 
-        records: list[Classified] = []
-        if letters:
-            budget.tick()
-            records, _ = classify(letters, usage=budget.usage,
-                                  known_senders=state.known_senders, **kwargs)
+            records: list[Classified] = []
+            if letters:
+                budget.tick()
+                records, _ = classify(letters, usage=budget.usage,
+                                      known_senders=state.known_senders, **kwargs)
     finally:
         if owns_conns:
             conns.close_all()

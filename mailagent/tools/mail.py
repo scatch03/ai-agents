@@ -62,9 +62,31 @@ class Connections:
         return self._config
 
     def get(self, mailbox_id: str):
-        if mailbox_id not in self._live:
-            self._live[mailbox_id] = self._opener(self._config.mailbox(mailbox_id))
+        """
+        Живе з'єднання. Перевірка через NOOP обов'язкова: сервер мовчки рве
+        сесію після паузи, і пул віддавав би мертвий сокет знову й знову —
+        перший тайм-аут перетворювався на нескінченну низку Broken pipe,
+        бо перевідкрити його ніхто не намагався.
+        """
+        conn = self._live.get(mailbox_id)
+        if conn is not None:
+            try:
+                conn.noop()
+                return conn
+            except Exception:  # noqa: BLE001 — будь-яка помилка тут = сесія мертва
+                self.drop(mailbox_id)
+        self._live[mailbox_id] = self._opener(self._config.mailbox(mailbox_id))
         return self._live[mailbox_id]
+
+    def drop(self, mailbox_id: str) -> None:
+        """Викидає з'єднання з пулу, щоб наступний виклик відкрив нове."""
+        conn = self._live.pop(mailbox_id, None)
+        if conn is None:
+            return
+        try:
+            conn.logout()
+        except Exception:  # noqa: BLE001 — воно вже зламане, це прибирання
+            pass
 
     def close_all(self) -> None:
         for conn in self._live.values():

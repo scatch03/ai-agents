@@ -152,6 +152,61 @@ class TestListNewEmails(unittest.TestCase):
         self.assertIn("немає в конфізі", str(ctx.exception))
 
 
+class TestConnectionPool(unittest.TestCase):
+    def test_dead_connection_is_reopened(self):
+        """
+        Сервер мовчки рве сесію після паузи. Раніше пул віддавав той самий
+        мертвий сокет далі, і перший тайм-аут перетворювався на нескінченну
+        низку Broken pipe — саме так ранок 9 вересня лишився без листів.
+        """
+        class Dead(FakeIMAP):
+            def noop(self):
+                raise OSError("[Errno 32] Broken pipe")
+
+        opened = []
+
+        def opener(box):
+            fake = Dead(uids=[1], headers={1: "From: a@b\r\n\r\n"}) \
+                if not opened else FakeIMAP(uids=[1], headers={1: "From: a@b\r\n\r\n"})
+            opened.append(fake)
+            return fake
+
+        conns = mail.Connections(CONFIG, opener=opener)
+        conns.get("work")            # перше з'єднання
+        conns.get("work")            # мертве → має відкритися нове
+        self.assertEqual(len(opened), 2)
+
+    def test_live_connection_is_reused(self):
+        opened = []
+
+        def opener(box):
+            fake = FakeIMAP(uids=[], headers={})
+            fake.noop = lambda: ("OK", [b""])
+            opened.append(fake)
+            return fake
+
+        conns = mail.Connections(CONFIG, opener=opener)
+        conns.get("work")
+        conns.get("work")
+        self.assertEqual(len(opened), 1, "живе з'єднання не має перевідкриватися")
+
+
+class TestSocketErrorsAreTransient(unittest.TestCase):
+    def test_socket_failures_are_retried(self):
+        """Обрив сокета — це мережа моргнула, а не «повтор не допоможе»."""
+        from mailagent.retry import is_transient
+        for message in ("socket error: [Errno 32] Broken pipe",
+                        "[Errno 60] Operation timed out",
+                        "EOF occurred in violation of protocol",
+                        "server closed the connection"):
+            self.assertTrue(is_transient(ToolError(message)), message)
+
+    def test_auth_failure_stays_fatal(self):
+        from mailagent.retry import is_transient
+        self.assertFalse(is_transient(ToolError("IMAP authentication failed",
+                                                status=401)))
+
+
 class TestFetchBody(unittest.TestCase):
     def test_html_to_text_and_link_pairs(self):
         """Пари (текст, href) — саме на їхньому розходженні ловиться фішинг."""

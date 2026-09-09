@@ -77,6 +77,9 @@ ENV_KEYS = {
 }
 
 MAX_ATTEMPTS = 5
+# Без явного таймауту виклик може висіти годинами: SDK читає з сокета, який
+# сервер уже не обслуговує, а наш бюджет часу перевіряється лише МІЖ кроками.
+REQUEST_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "120"))
 
 
 def _base_delay() -> float:
@@ -244,7 +247,10 @@ def _call_google(prompt, system, model, max_tokens, temperature, json_mode):
     except ImportError as exc:
         raise ConfigError("pip install google-genai") from exc
 
-    client = genai.Client(api_key=_require_key("google"))
+    client = genai.Client(
+        api_key=_require_key("google"),
+        http_options=types.HttpOptions(timeout=int(REQUEST_TIMEOUT * 1000)),
+    )
     config = types.GenerateContentConfig(
         system_instruction=system or None,
         temperature=temperature,
@@ -277,7 +283,8 @@ def _openai_compatible(provider: str, base_url: str | None = None):
             raise ConfigError("pip install openai") from exc
 
         client = OpenAI(  # max_retries=0: ретраї робить наша функція, не SDK
-            api_key=_require_key(provider), base_url=base_url, max_retries=0
+            api_key=_require_key(provider), base_url=base_url, max_retries=0,
+            timeout=REQUEST_TIMEOUT,
         )
         messages = []
         if system:
@@ -312,7 +319,8 @@ def _call_anthropic(prompt, system, model, max_tokens, temperature, json_mode):
     except ImportError as exc:
         raise ConfigError("pip install anthropic") from exc
 
-    client = anthropic.Anthropic(api_key=_require_key("anthropic"), max_retries=0)
+    client = anthropic.Anthropic(api_key=_require_key("anthropic"), max_retries=0,
+                                 timeout=REQUEST_TIMEOUT)
     # Три відмінності від решти провайдерів:
     # 1. max_tokens ОБОВ'ЯЗКОВИЙ (без нього 400);
     # 2. system — окремий параметр, а не елемент messages (інакше 400);

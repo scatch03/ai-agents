@@ -16,6 +16,7 @@ import time
 import httpx
 
 from .config import load_config, telegram_owner_id, telegram_token
+from .retry import stamp
 from .errors import ConfigError, ToolError
 from .run import Limits, callback_run, digest_run
 from .state import State
@@ -29,7 +30,7 @@ def cmd_digest(args) -> int:
     if args.dry_run:
         print(result["text"])
         print("─" * 60)
-    summary = (f"листів: {result['letters']}, ітерацій: {result['iterations']}, "
+    summary = (f"{stamp()} листів: {result['letters']}, ітерацій: {result['iterations']}, "
                f"${result['cost_usd']:.5f}, {result['seconds']} c")
     print(summary)
     if result["mailboxes_failed"]:
@@ -52,7 +53,7 @@ def cmd_listen(args) -> int:
     state = State()
     owner = telegram_owner_id()
     url = f"https://api.telegram.org/bot{telegram_token()}/getUpdates"
-    print(f"слухаю натискання (власник {owner}), Ctrl+C щоб зупинити")
+    print(f"{stamp()} слухаю натискання (власник {owner}), Ctrl+C щоб зупинити")
     with httpx.Client(timeout=POLL_TIMEOUT + 10) as client:
         while True:
             try:
@@ -63,7 +64,7 @@ def cmd_listen(args) -> int:
                 })
                 updates = response.json().get("result", [])
             except (httpx.HTTPError, ValueError) as exc:
-                print(f"опит не вдався: {exc}; чекаю 5 c", file=sys.stderr)
+                print(f"{stamp()} опит не вдався: {exc}; чекаю 5 c", file=sys.stderr)
                 time.sleep(5)
                 continue
 
@@ -74,9 +75,9 @@ def cmd_listen(args) -> int:
                     continue
                 try:
                     result = callback_run(update, state=state, owner_id=owner)
-                    print(f"  {result}")
+                    print(f"{stamp()}   {result}")
                 except (ToolError, ConfigError) as exc:
-                    print(f"  збій обробки: {exc}", file=sys.stderr)
+                    print(f"{stamp()}   збій обробки: {exc}", file=sys.stderr)
 
 
 def cmd_state(args) -> int:

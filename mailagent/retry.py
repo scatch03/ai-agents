@@ -14,9 +14,19 @@ import os
 import re
 import sys
 import time
+from datetime import datetime
 from typing import Any, Callable
 
 MAX_ATTEMPTS = 5
+
+
+def stamp() -> str:
+    """
+    Мітка часу для логів. Без неї в журналі launchd неможливо сказати,
+    коли саме почалося зависання і скільки воно тривало — доводиться
+    з'ясовувати це через ps по вцілілому процесу.
+    """
+    return datetime.now().strftime("%H:%M:%S")
 
 TRANSIENT_STATUSES = {408, 409, 425, 429, 500, 502, 503, 504, 529}
 FATAL_STATUSES = {400, 401, 403, 404, 422}
@@ -30,6 +40,10 @@ FATAL_MARKERS = (
 TRANSIENT_MARKERS = (
     "rate limit", "ratelimit", "too many requests", "overloaded", "unavailable",
     "timeout", "timed out", "connection", "temporarily", "try again", "reset by peer",
+    # Обриви сокета. Без них перший тайм-аут IMAP робив «невідновлюваними»
+    # усі наступні виклики, і запуск тихо лишався без половини листів.
+    "broken pipe", "socket error", "eof occurred", "not connected",
+    "connection closed", "server closed",
 )
 
 _DELAY_PATTERNS = (
@@ -93,11 +107,12 @@ def with_retry(call: Callable[[], Any], *, label: str,
         except Exception as exc:  # noqa: BLE001 — свідомо ловимо все від бібліотек
             last = exc
             status = status_of(exc)
-            print(f"[retry] {label} спроба {attempt}/{max_attempts} впала: "
+            print(f"{stamp()} [retry] {label} спроба {attempt}/{max_attempts} впала: "
                   f"{type(exc).__name__} status={status}: {exc}"[:400],
                   file=sys.stderr, flush=True)
             if not is_transient(exc):
-                print(f"[retry] {label}: помилка невідновлювана — падаємо одразу",
+                print(f"{stamp()} [retry] {label}: помилка невідновлювана — "
+                      f"падаємо одразу",
                       file=sys.stderr, flush=True)
                 break
             if attempt == max_attempts:
@@ -107,7 +122,7 @@ def with_retry(call: Callable[[], Any], *, label: str,
             note = ""
             if server and server > delay:
                 delay, note = server + 0.5, f" (сервер попросив {server:g} c)"
-            print(f"[retry] {label}: чекаю {delay:g} c і пробую ще раз{note}",
+            print(f"{stamp()} [retry] {label}: чекаю {delay:g} c і пробую ще раз{note}",
                   file=sys.stderr, flush=True)
             sleep(delay)
 
