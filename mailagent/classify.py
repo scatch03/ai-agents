@@ -15,13 +15,18 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import sys
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Callable, Iterable, Sequence
 
 from . import threats
+from .errors import RunTimeout
+from .retry import stamp
 from .threats import Threat
 
 # Порядок = пріоритет при спірних випадках, згори вниз.
@@ -50,8 +55,23 @@ CATEGORY_HINTS = {
              "Клади сюди лише тоді, коли жодна рубрика вище справді не підходить",
 }
 
-TRIAGE_BATCH = 100
-CLASSIFY_BATCH = 50
+# Пачки дрібні навмисно: на безкоштовному тарифі Groq ліміт 8000 токенів
+# на хвилину, і сотня листів одним запитом важить удвічі більше. Розмір
+# підбирати наосліп не треба — надто велика пачка ділиться сама (див. _send).
+TRIAGE_BATCH = 40
+CLASSIFY_BATCH = 12
+
+# Моделі з міркуваннями (gpt-oss на Groq) пишуть роздуми в ті самі вихідні
+# токени, тож бюджет має рости з кількістю листів. Зашита стеля 1500 клала
+# тріаж на сотні листів: JSON обривався, і Groq віддавав 400
+# json_validate_failed — а з ним падав увесь ранковий запуск.
+TRIAGE_TOKENS_BASE, TRIAGE_TOKENS_PER_LETTER = 1500, 60
+CLASSIFY_TOKENS_BASE, CLASSIFY_TOKENS_PER_LETTER = 2000, 400
+MAX_OUTPUT_TOKENS = 32000
+
+
+def _budget(count: int, base: int, per_letter: int) -> int:
+    return min(MAX_OUTPUT_TOKENS, base + per_letter * count)
 SUMMARY_MAX = 200
 EVENT_MIN_CONFIDENCE = 0.7
 # Стеля тіл — частка від кількості листів АБО цей мінімум, що більше.
@@ -427,14 +447,106 @@ def _chunks(items: Sequence[Letter], size: int) -> Iterable[Sequence[Letter]]:
         yield items[i:i + size]
 
 
+# --------------------------------------------------------------------------
+# Ліміт токенів за хвилину
+# --------------------------------------------------------------------------
+TPM_LIMIT = int(os.getenv("LLM_TPM_LIMIT", "8000"))
+CHARS_PER_TOKEN = 3.0        # груба оцінка для української й англійської
+_TOO_LARGE = ("request too large", "413", "context length", "too many tokens")
+
+
+class Pacer:
+    """
+    Тримає темп під лімітом «токенів за хвилину».
+
+    Дрібних пачок недостатньо: ліміт рахується за вікно, а не за запит, тож
+    три невеликі виклики поспіль упираються так само, як один великий.
+    Тому перед кожним викликом чекаємо, доки у вікні звільниться місце.
+    """
+
+    def __init__(self, limit: int = TPM_LIMIT, window: float = 60.0,
+                 sleep: Callable[[float], None] = time.sleep):
+        self.limit, self.window, self._sleep = limit, window, sleep
+        self._spent: list[tuple[float, int]] = []
+
+    def _used(self, now: float) -> int:
+        self._spent = [(t, n) for t, n in self._spent if now - t < self.window]
+        return sum(n for _, n in self._spent)
+
+    def wait_for(self, estimate: int) -> float:
+        now = time.monotonic()
+        used = self._used(now)
+        if not self._spent or used + estimate <= self.limit:
+            return 0.0
+        oldest = self._spent[0][0]
+        pause = max(0.0, self.window - (now - oldest)) + 0.5
+        print(f"{stamp()} [темп] у вікні вже {used} токенів, наступний запит "
+              f"≈{estimate} — чекаю {pause:.0f} c", file=sys.stderr, flush=True)
+        self._sleep(pause)
+        self._spent.clear()
+        return pause
+
+    def record(self, tokens: int) -> None:
+        self._spent.append((time.monotonic(), tokens))
+
+
+def _estimate(prompt: str, system: str, max_tokens: int) -> int:
+    return int((len(prompt) + len(system)) / CHARS_PER_TOKEN) + max_tokens
+
+
+def _is_too_large(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(marker in text for marker in _TOO_LARGE)
+
+
 def _default_llm(*args, **kwargs):
     from llm import llm  # локальний імпорт: тести підмінюють llm_fn і не тягнуть SDK
     return llm(*args, **kwargs)
 
 
+
+def _send(llm_fn, batch: Sequence[Letter], *, render, system: str, budget,
+          provider: str, usage: Usage, pacer: Pacer, label: str) -> list[dict]:
+    """
+    Один виклик моделі з дотриманням темпу. Повертає список розібраних
+    відповідей — список, а не одну, бо завелика пачка ділиться навпіл
+    і дає дві.
+
+    Ділення саме тут, а не в підборі TRIAGE_BATCH/CLASSIFY_BATCH, навмисне:
+    ліміт залежить від тарифу й провайдера, а листи бувають і на рядок,
+    і на три екрани. Вгадати розмір наперед неможливо — можна лише
+    відреагувати на відмову.
+    """
+    prompt = render(batch)
+    max_tokens = budget(len(batch))
+    pacer.wait_for(_estimate(prompt, system, max_tokens))
+    try:
+        result = llm_fn(prompt, system=system, provider=provider,
+                        max_tokens=max_tokens, json_mode=True)
+    except RunTimeout:
+        raise            # будильник запуску — не «падіння моделі», не ковтаємо
+    except Exception as exc:  # noqa: BLE001
+        if _is_too_large(exc) and len(batch) > 1:
+            half = len(batch) // 2
+            print(f"{stamp()} [{label}] пачка з {len(batch)} завелика — "
+                  f"ділю на {half} і {len(batch) - half}", file=sys.stderr, flush=True)
+            return (_send(llm_fn, batch[:half], render=render, system=system,
+                          budget=budget, provider=provider, usage=usage,
+                          pacer=pacer, label=label)
+                    + _send(llm_fn, batch[half:], render=render, system=system,
+                            budget=budget, provider=provider, usage=usage,
+                            pacer=pacer, label=label))
+        print(f"{stamp()} [{label}] пачка з {len(batch)} листів не вдалася: "
+              f"{str(exc)[:200]}", file=sys.stderr, flush=True)
+        return []
+    usage.add(result)
+    pacer.record(result["in_tokens"] + result["out_tokens"])
+    return [_parse_json(result["text"])]
+
+
 def triage(letters: Sequence[Letter], *, llm_fn: Callable[..., dict] = _default_llm,
            provider: str = "groq", usage: Usage | None = None,
-           max_share: float = 1 / 3) -> set[int]:
+           pacer: Pacer | None = None, max_share: float = 1 / 3) -> set[int]:
     """Які листи потребують повного тексту. Порожній вхід — порожня відповідь."""
     usage = usage if usage is not None else Usage()
     if not letters:
@@ -442,15 +554,20 @@ def triage(letters: Sequence[Letter], *, llm_fn: Callable[..., dict] = _default_
 
     valid = {letter.uid for letter in letters}
     wanted: set[int] = set()
+    pacer = pacer or Pacer()
     for batch in _chunks(letters, TRIAGE_BATCH):
-        result = llm_fn(_render_headers(batch), system=TRIAGE_SYSTEM,
-                        provider=provider, max_tokens=1500, json_mode=True)
-        usage.add(result)
-        data = _parse_json(result["text"])
-        for uid in data.get("needs_body", []) or []:
-            # uid поза вибіркою — спроба змусити прочитати чужий лист.
-            if isinstance(uid, int) and uid in valid:
-                wanted.add(uid)
+        # Тріаж — оптимізація, а не необхідність: якщо він не вдався, листи
+        # просто класифікуються за темами, без тіл. Дайджест має вийти.
+        for data in _send(llm_fn, batch, render=_render_headers,
+                          system=TRIAGE_SYSTEM,
+                          budget=lambda n: _budget(n, TRIAGE_TOKENS_BASE,
+                                                   TRIAGE_TOKENS_PER_LETTER),
+                          provider=provider, usage=usage, pacer=pacer,
+                          label="тріаж"):
+            for uid in data.get("needs_body", []) or []:
+                # uid поза вибіркою — спроба змусити прочитати чужий лист.
+                if isinstance(uid, int) and uid in valid:
+                    wanted.add(uid)
 
     ceiling = max(MIN_BODIES, int(len(letters) * max_share))
     if len(wanted) > ceiling:
@@ -461,6 +578,7 @@ def triage(letters: Sequence[Letter], *, llm_fn: Callable[..., dict] = _default_
 
 def classify(letters: Sequence[Letter], *, llm_fn: Callable[..., dict] = _default_llm,
              provider: str = "groq", usage: Usage | None = None,
+             pacer: Pacer | None = None,
              known_senders: set[str] | None = None) -> tuple[list[Classified], Usage]:
     """
     Розкладає листи по рубриках. Гарантія: на виході рівно стільки записів,
@@ -474,13 +592,20 @@ def classify(letters: Sequence[Letter], *, llm_fn: Callable[..., dict] = _defaul
         return [], usage
 
     raw_by_uid: dict[int, dict[str, Any]] = {}
+    pacer = pacer or Pacer()
     for batch in _chunks(letters, CLASSIFY_BATCH):
-        result = llm_fn(_render_full(batch), system=CLASSIFY_SYSTEM,
-                        provider=provider, max_tokens=6000, json_mode=True)
-        usage.add(result)
-        for record in _parse_json(result["text"]).get("letters", []) or []:
-            if isinstance(record, dict) and isinstance(record.get("uid"), int):
-                raw_by_uid[record["uid"]] = record
+        # Листи пачки, яка не вдалася, підуть в other з поміткою
+        # «не класифіковано»: показати їх темами чесніше, ніж не надіслати
+        # дайджест узагалі.
+        for data in _send(llm_fn, batch, render=_render_full,
+                          system=CLASSIFY_SYSTEM,
+                          budget=lambda n: _budget(n, CLASSIFY_TOKENS_BASE,
+                                                   CLASSIFY_TOKENS_PER_LETTER),
+                          provider=provider, usage=usage, pacer=pacer,
+                          label="класифікація"):
+            for record in data.get("letters", []) or []:
+                if isinstance(record, dict) and isinstance(record.get("uid"), int):
+                    raw_by_uid[record["uid"]] = record
 
     out: list[Classified] = []
     for letter in letters:

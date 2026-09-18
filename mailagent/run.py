@@ -25,7 +25,7 @@ from . import threats
 from .classify import Classified, Letter, Usage, classify, triage
 from .config import Config, load_config, telegram_owner_id
 from .digest import MailboxReport, keyboard, render_digest
-from .errors import ToolError
+from .errors import RunTimeout, ToolError
 from .retry import ToolRetryError
 from .state import State
 from .tools import call
@@ -166,10 +166,6 @@ def fetch_bodies(letters: Sequence[Letter], wanted: set[int],
 # --------------------------------------------------------------------------
 # digest_run
 # --------------------------------------------------------------------------
-class RunTimeout(RuntimeError):
-    """Спрацював жорсткий ліміт часу на весь запуск."""
-
-
 @contextmanager
 def _deadline(seconds: float):
     """

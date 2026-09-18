@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import date
 import time
 
 import httpx
@@ -24,9 +25,36 @@ from .state import State
 POLL_TIMEOUT = 25
 
 
+def _alert(message: str) -> None:
+    """
+    Повідомити власника, що ранковий запуск упав.
+
+    Без цього агент мовчить так само, як мовчав би у вихідний: вісім днів
+    поспіль дайджест не виходив, і дізналися про це лише з того, що його
+    немає. Ключ ідемпотентності — на добу, щоб не перетворити збій
+    на потік повідомлень.
+    """
+    from .state import State
+    from .tools import telegram
+    try:
+        telegram.send_message(
+            f"⚠️ Ранковий дайджест не зібрався.\n\n{message[:600]}\n\n"
+            f"Логи: ~/Library/Logs/mailagent/digest.log",
+            state=State(), idempotency_key=f"alert-{date.today().isoformat()}")
+    except Exception as exc:  # noqa: BLE001 — не вийшло сповістити, лишається лог
+        print(f"{stamp()} не вдалося надіслати сповіщення про збій: {exc}",
+              file=sys.stderr)
+
+
 def cmd_digest(args) -> int:
-    result = digest_run(dry_run=args.dry_run,
-                        limits=Limits(max_cost_usd=args.max_cost))
+    try:
+        result = digest_run(dry_run=args.dry_run,
+                            limits=Limits(max_cost_usd=args.max_cost))
+    except Exception as exc:  # noqa: BLE001 — будь-яке падіння має бути видно
+        print(f"{stamp()} запуск упав: {type(exc).__name__}: {exc}", file=sys.stderr)
+        if not args.dry_run:
+            _alert(f"{type(exc).__name__}: {exc}")
+        raise
     if args.dry_run:
         print(result["text"])
         print("─" * 60)

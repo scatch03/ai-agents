@@ -19,7 +19,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mailagent import threats                                     # noqa: E402
 from mailagent.classify import (                                  # noqa: E402
-    CATEGORIES, Letter, Usage, classify, counts_by_category, threat_counts, triage,
+    CATEGORIES, Letter, Pacer, Usage, classify, counts_by_category,
+    threat_counts, triage,
 )
 from mailagent.threats import Threat                              # noqa: E402
 
@@ -320,6 +321,95 @@ class TestTriage(unittest.TestCase):
                     "cost_usd": 0.0, "seconds": 0.0}
         self.assertEqual(triage([], llm_fn=counting), set())
         self.assertEqual(calls["n"], 0)
+
+
+class TestDegradation(unittest.TestCase):
+    """
+    Падіння одного виклику моделі не має вбивати весь ранок. Саме так агент
+    мовчав вісім днів: тріаж упирався в зашиту стелю токенів, віддавав
+    400 json_validate_failed — і дайджест не виходив узагалі.
+    """
+
+    def boom(self, *args, **kwargs):
+        raise RuntimeError("400 json_validate_failed")
+
+    def test_triage_failure_means_no_bodies_not_no_digest(self):
+        self.assertEqual(triage([letter(1), letter(2)], llm_fn=self.boom), set())
+
+    def test_classify_failure_puts_letters_in_other(self):
+        records, _ = classify([letter(1), letter(2)], llm_fn=self.boom)
+        self.assertEqual(len(records), 2)
+        self.assertTrue(all(r.category == "other" for r in records))
+        self.assertTrue(all("не класифіковано" in r.summary for r in records))
+
+    def test_token_budget_grows_with_batch(self):
+        """Зашита стеля клала тріаж рівно тоді, коли листів багато."""
+        from mailagent.classify import (
+            TRIAGE_TOKENS_BASE, TRIAGE_TOKENS_PER_LETTER, _budget)
+        small = _budget(5, TRIAGE_TOKENS_BASE, TRIAGE_TOKENS_PER_LETTER)
+        large = _budget(100, TRIAGE_TOKENS_BASE, TRIAGE_TOKENS_PER_LETTER)
+        self.assertGreater(large, small * 3)
+
+    def test_budget_has_a_ceiling(self):
+        from mailagent.classify import MAX_OUTPUT_TOKENS, _budget
+        self.assertEqual(_budget(10_000, 2000, 400), MAX_OUTPUT_TOKENS)
+
+
+class TestBatchSplitting(unittest.TestCase):
+    """
+    На безкоштовному тарифі Groq ліміт 8000 токенів за хвилину. Сотня листів
+    одним запитом важить удвічі більше — 413 Request too large, і 18 вересня
+    це лишило дайджест зовсім без класифікації.
+    """
+
+    def model_rejecting_big(self, max_letters: int):
+        """Модель, яка приймає пачку лише до max_letters листів."""
+        calls = []
+
+        def _fake(prompt, system="", provider="groq", **kwargs):
+            import re as _re
+            uids = [int(u) for u in _re.findall(r'uid="(\d+)"', prompt)]
+            calls.append(len(uids))
+            if len(uids) > max_letters:
+                raise RuntimeError("Error code: 413 - Request too large for model")
+            return {"text": json.dumps({"letters": [record(u) for u in uids]}),
+                    "in_tokens": 100 * len(uids), "out_tokens": 50,
+                    "cost_usd": 0.0001, "seconds": 0.1}
+        return _fake, calls
+
+    def test_oversized_batch_is_split_until_it_fits(self):
+        fake, calls = self.model_rejecting_big(3)
+        letters = [letter(i) for i in range(1, 13)]
+        records, _ = classify(letters, llm_fn=fake, pacer=Pacer(limit=10**9))
+        self.assertEqual(len(records), 12)
+        self.assertTrue(all(r.category == "work" for r in records),
+                        "після ділення всі листи мають бути класифіковані")
+        self.assertTrue(any(n <= 3 for n in calls), "пачка мала поділитися")
+
+    def test_split_stops_at_single_letter(self):
+        """Якщо не влазить навіть один лист, ділити більше нема куди."""
+        fake, _ = self.model_rejecting_big(0)
+        records, _ = classify([letter(1), letter(2)], llm_fn=fake,
+                              pacer=Pacer(limit=10**9))
+        self.assertEqual(len(records), 2)
+        self.assertTrue(all(r.category == "other" for r in records))
+
+
+class TestPacer(unittest.TestCase):
+    def test_waits_when_window_is_full(self):
+        """Ліміт рахується за хвилину, тож дрібних пачок самих по собі мало."""
+        slept = []
+        pacer = Pacer(limit=8000, sleep=slept.append)
+        pacer.record(7000)
+        pacer.wait_for(3000)
+        self.assertTrue(slept and slept[0] > 50)
+
+    def test_does_not_wait_when_there_is_room(self):
+        slept = []
+        pacer = Pacer(limit=8000, sleep=slept.append)
+        pacer.record(1000)
+        pacer.wait_for(2000)
+        self.assertEqual(slept, [])
 
 
 class TestPrompt(unittest.TestCase):

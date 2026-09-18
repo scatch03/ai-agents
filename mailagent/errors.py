@@ -24,3 +24,13 @@ class ConfigError(ToolError):
 
     def __init__(self, message: str):
         super().__init__(message, status=400)
+
+
+class RunTimeout(RuntimeError):
+    """
+    Спрацював жорсткий ліміт часу на весь запуск.
+
+    Живе тут, а не в run.py, саме щоб його можна було виключити з обробників
+    «падіння моделі не фатальне»: інакше except Exception ковтає будильник,
+    і зависання знову тримає завдання нескінченно.
+    """
