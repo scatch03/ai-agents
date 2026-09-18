@@ -22,7 +22,8 @@ from datetime import date, datetime, timezone
 from typing import Any, Callable, Sequence
 
 from . import threats
-from .classify import Classified, Letter, Usage, classify, triage
+from .classify import (Classified, Letter, Usage, classify,
+                       counts_by_category, threat_counts, triage)
 from .config import Config, load_config, telegram_owner_id
 from .digest import MailboxReport, keyboard, render_digest
 from .errors import RunTimeout, ToolError
@@ -308,8 +309,16 @@ def _make_drafts(records: Sequence[Classified], state: State, *, ttl_days: int
 
 def _summary(rendered, records, outcomes, budget, *, sent, cursors_moved
              ) -> dict[str, Any]:
+    # Скільки листів лишилося нерозібраними — головний показник ЯКОСТІ запуску.
+    # Без нього дайджест, у якому класифікація впала цілком, виглядає в лозі
+    # таким самим успіхом, як і нормальний: «надіслано, 107 листів».
+    unclassified = sum(1 for r in records if r.summary.startswith("(не класифіковано)"))
+    counts = {c: n for c, n in counts_by_category(records).items() if n}
     return {
         "letters": len(records),
+        "unclassified": unclassified,
+        "categories": counts,
+        "threats": threat_counts(records),
         "mailboxes_ok": [o.mailbox_id for o in outcomes if o.ok and o.polled],
         "mailboxes_failed": [o.mailbox_id for o in outcomes if not o.ok],
         "iterations": budget.iterations,

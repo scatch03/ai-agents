@@ -61,6 +61,22 @@ def cmd_digest(args) -> int:
     summary = (f"{stamp()} листів: {result['letters']}, ітерацій: {result['iterations']}, "
                f"${result['cost_usd']:.5f}, {result['seconds']} c")
     print(summary)
+    total, bad = result["letters"], result.get("unclassified", 0)
+    if total:
+        rubrics = ", ".join(f"{c} {n}" for c, n in result["categories"].items())
+        print(f"рубрики: {rubrics or '—'}")
+        # Явний вердикт у лозі: інакше «надіслано» читається як успіх навіть
+        # тоді, коли жоден лист не розібрано.
+        if bad == total:
+            print(f"КЛАСИФІКАЦІЯ НЕ СПРАЦЮВАЛА: усі {total} листів "
+                  f"не класифіковано")
+        elif bad:
+            print(f"класифікація часткова: не розібрано {bad} із {total}")
+        else:
+            print("класифікація: усі листи розібрані")
+        if result.get("threats"):
+            print("позначки: " + ", ".join(f"{k} {v}"
+                                           for k, v in result["threats"].items()))
     if result["mailboxes_failed"]:
         print("недоступні скриньки:", ", ".join(result["mailboxes_failed"]))
     if result["stopped_by"]:

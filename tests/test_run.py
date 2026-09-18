@@ -189,6 +189,29 @@ class TestMailboxLabels(unittest.TestCase):
         self.assertIn("me@work.example / archive", result["text"])
 
 
+class TestQualityReporting(unittest.TestCase):
+    """
+    Дайджест, у якому класифікація впала цілком, у лозі виглядав таким самим
+    успіхом, як нормальний: «надіслано, 107 листів». Підсумок має розрізняти.
+    """
+
+    def test_unclassified_letters_are_counted(self):
+        def broken(prompt, system="", provider="groq", **kwargs):
+            raise RuntimeError("413 Request too large")
+
+        state = fresh_state()
+        result, _ = run(state, imap_with([101, 102]), llm=broken)
+        self.assertEqual(result["letters"], 2)
+        self.assertEqual(result["unclassified"], 2)
+        self.assertEqual(result["categories"], {"other": 2})
+
+    def test_good_run_reports_zero_unclassified(self):
+        state = fresh_state()
+        result, _ = run(state, imap_with([101, 102]))
+        self.assertEqual(result["unclassified"], 0)
+        self.assertEqual(result["categories"], {"work": 2})
+
+
 class TestIdempotency(unittest.TestCase):
     def test_second_run_same_day_sends_nothing(self):
         state = fresh_state()
