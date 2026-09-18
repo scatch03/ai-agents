@@ -13,6 +13,7 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from datetime import date, datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -289,6 +290,55 @@ class TestDeadlineIsNotSwallowed(unittest.TestCase):
 
         with self.assertRaises(RunTimeout):
             with_retry(fires, label="test", sleep=lambda d: None)
+
+
+class TestFailureAlert(unittest.TestCase):
+    """
+    Сповіщення про збій — єдиний запобіжник після того, як планову перевірку
+    прибрали. Неперевірене сповіщення нічим не краще за його відсутність:
+    мовчання виглядає однаково в обох випадках.
+    """
+
+    def test_failed_run_sends_an_alert(self):
+        import mailagent.__main__ as cli
+
+        sent = {}
+
+        def fake_send(text, *, state, idempotency_key, **kwargs):
+            sent["text"], sent["key"] = text, idempotency_key
+            return {"sent": True, "message_id": 1, "already_sent": False}
+
+        original = cli.digest_run
+        cli.digest_run = lambda **kw: (_ for _ in ()).throw(
+            RuntimeError("413 Request too large"))
+        try:
+            with unittest.mock.patch("mailagent.tools.telegram.send_message",
+                                     fake_send):
+                with self.assertRaises(RuntimeError):
+                    cli.main(["digest"])
+        finally:
+            cli.digest_run = original
+
+        self.assertIn("не зібрався", sent["text"])
+        self.assertIn("413 Request too large", sent["text"])
+        self.assertTrue(sent["key"].startswith("alert-"),
+                        "ключ на добу, щоб збій не став потоком повідомлень")
+
+    def test_dry_run_failure_does_not_alert(self):
+        """Ручний --dry-run не має будити власника повідомленням."""
+        import mailagent.__main__ as cli
+
+        calls = []
+        original = cli.digest_run
+        cli.digest_run = lambda **kw: (_ for _ in ()).throw(RuntimeError("bang"))
+        try:
+            with unittest.mock.patch("mailagent.tools.telegram.send_message",
+                                     lambda *a, **k: calls.append(1)):
+                with self.assertRaises(RuntimeError):
+                    cli.main(["digest", "--dry-run"])
+        finally:
+            cli.digest_run = original
+        self.assertEqual(calls, [])
 
 
 class TestDryRun(unittest.TestCase):

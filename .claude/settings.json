@@ -5,7 +5,9 @@
       "Bash(launchctl list:*)",
       "Bash(tail:*)",
       "Bash(grep:*)",
-      "Bash(.venv/bin/python -m mailagent state)"
+      "Bash(.venv/bin/python -m mailagent state)",
+      "Bash(cd:*)",
+      "Bash(.venv/bin/python -m mailagent:*)"
     ]
   }
 }
