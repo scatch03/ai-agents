@@ -251,6 +251,23 @@ class TestHardDeadline(unittest.TestCase):
                         "будильник мав обірвати зависання")
 
 
+class TestDeadlineIsNotSwallowed(unittest.TestCase):
+    def test_retry_wrapper_lets_the_alarm_through(self):
+        """
+        with_retry ловить Exception, а RunTimeout — теж Exception. Через це
+        будильник перетворювався на звичайну «невідновлювану помилку», яку
+        викликач переживав, і запуск тривав 52 хвилини замість одинадцяти.
+        """
+        from mailagent.errors import RunTimeout
+        from mailagent.retry import with_retry
+
+        def fires():
+            raise RunTimeout("будильник")
+
+        with self.assertRaises(RunTimeout):
+            with_retry(fires, label="test", sleep=lambda d: None)
+
+
 class TestDryRun(unittest.TestCase):
     def test_dry_run_sends_nothing_and_moves_nothing(self):
         state = fresh_state()

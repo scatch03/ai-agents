@@ -38,11 +38,13 @@ class Limits:
     """Стелі з архітектури. Досягнення будь-якої — не збій, а привід зупинитись."""
     max_iterations: int = 100
     max_cost_usd: float = 0.10
-    max_seconds: float = 600.0
+    # Очікування ліміту провайдера — не зависання: на безкоштовному тарифі
+    # сотня листів законно чекає хвилинами. Стеля піднята саме тому.
+    max_seconds: float = 1800.0
     # Наскільки будильник відстає від м'якого бюджету часу. Спершу має
     # спрацювати штатна зупинка з «неповним дайджестом», і лише якщо вона
     # недосяжна — бо виклик завис усередині SDK — рве будильник.
-    hard_margin_seconds: float = 60.0
+    hard_margin_seconds: float = 300.0
 
 
 @dataclass
@@ -182,7 +184,9 @@ def _deadline(seconds: float):
         raise RunTimeout(f"запуск перевищив {seconds:.0f} c і зупинений будильником")
 
     previous = signal.signal(signal.SIGALRM, _fire)
-    signal.setitimer(signal.ITIMER_REAL, seconds)
+    # Повторюваний: одноразовий давав рівно один шанс, і якщо його десь
+    # проковтнули обробником except Exception — запуск жив далі нескінченно.
+    signal.setitimer(signal.ITIMER_REAL, seconds, 30.0)
     try:
         yield
     finally:

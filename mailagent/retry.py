@@ -15,6 +15,8 @@ import re
 import sys
 import time
 from datetime import datetime
+
+from .errors import RunTimeout
 from typing import Any, Callable
 
 MAX_ATTEMPTS = 5
@@ -104,6 +106,12 @@ def with_retry(call: Callable[[], Any], *, label: str,
             started = time.perf_counter()
             result = call()
             return result, attempt, time.perf_counter() - started
+        except RunTimeout:
+            # Будильник запуску — не помилка інструмента. Без цього рядка
+            # with_retry перетворював його на звичайну «невідновлювану»,
+            # яку викликач спокійно переживав: 18 вересня так вийшли
+            # 52 хвилини замість одинадцяти.
+            raise
         except Exception as exc:  # noqa: BLE001 — свідомо ловимо все від бібліотек
             last = exc
             status = status_of(exc)
