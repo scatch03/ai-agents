@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ps:*)",
+      "Bash(launchctl list:*)",
+      "Bash(tail:*)",
+      "Bash(grep:*)",
+      "Bash(.venv/bin/python -m mailagent state)"
+    ]
+  }
+}
