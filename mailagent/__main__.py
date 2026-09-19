@@ -94,12 +94,16 @@ def cmd_listen(args) -> int:
     Довгий опит getUpdates. Простіший за вебхук і не потребує білої адреси;
     для одного власника цього досить.
     """
-    state = State()
     owner = telegram_owner_id()
     url = f"https://api.telegram.org/bot{telegram_token()}/getUpdates"
     print(f"{stamp()} слухаю натискання (власник {owner}), Ctrl+C щоб зупинити")
     with httpx.Client(timeout=POLL_TIMEOUT + 10) as client:
         while True:
+            # Стан перечитується на кожному колі. Слухач живе тижнями, а
+            # ранковий дайджест пише у той самий файл щодня: копія, узята
+            # при старті, застаріває в перший же ранок, і чернетки нових
+            # подій для неї просто не існують.
+            state = State()
             try:
                 response = client.get(url, params={
                     "offset": state.last_update_id + 1,
@@ -118,7 +122,7 @@ def cmd_listen(args) -> int:
                 if "callback_query" not in update:
                     continue
                 try:
-                    result = callback_run(update, state=state, owner_id=owner)
+                    result = callback_run(update, state=State(), owner_id=owner)
                     print(f"{stamp()}   {result}")
                 except (ToolError, ConfigError) as exc:
                     print(f"{stamp()}   збій обробки: {exc}", file=sys.stderr)

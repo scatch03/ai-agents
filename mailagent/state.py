@@ -65,7 +65,54 @@ class State:
         data.setdefault("known_senders", {})
         return data
 
+    def _merge_disk(self) -> None:
+        """
+        Злити з тим, що на диску, перед записом.
+
+        Процесів два — ранковий дайджест і слухач кнопок, — і кожен тримає
+        свою копію стану. Простий запис означає «останній перезаписує все»:
+        19 вересня слухач, запущений десятьма днями раніше, повернув курсор
+        на десять днів назад, і наступний ранок перечитав би півтори сотні
+        вже надісланих листів. Тому запис — це злиття, а не заміна.
+        """
+        if not self.path.exists():
+            return
+        try:
+            disk = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+
+        # Курсор рухається лише вперед — і при злитті теж.
+        for mailbox_id, theirs in (disk.get("cursors") or {}).items():
+            mine = self._data["cursors"].get(mailbox_id)
+            if mine is None or (
+                mine.get("uidvalidity") == theirs.get("uidvalidity")
+                and int(theirs.get("uid", 0)) > int(mine.get("uid", 0))
+            ):
+                self._data["cursors"][mailbox_id] = theirs
+
+        # Чернетки: об'єднання. Виконана або відхилена перемагає ту, що чекає.
+        for event_id, theirs in (disk.get("pending_events") or {}).items():
+            mine = self._data["pending_events"].get(event_id)
+            if mine is None or (mine.get("status") == "pending"
+                                and theirs.get("status") != "pending"):
+                self._data["pending_events"][event_id] = theirs
+
+        for key, value in (disk.get("sent_keys") or {}).items():
+            self._data["sent_keys"].setdefault(key, value)
+        for domain, count in (disk.get("known_senders") or {}).items():
+            seen = self._data.setdefault("known_senders", {})
+            seen[domain] = max(seen.get(domain, 0), count)
+
+        if (disk.get("last_digest_date") or "") > (self._data.get("last_digest_date") or ""):
+            self._data["last_digest_date"] = disk["last_digest_date"]
+            self._data["last_digest_message_id"] = disk.get("last_digest_message_id")
+            self._data["digest_events"] = disk.get("digest_events", [])
+        self._data["last_update_id"] = max(int(self._data.get("last_update_id", 0)),
+                                           int(disk.get("last_update_id", 0)))
+
     def save(self) -> None:
+        self._merge_disk()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # tmp + replace: обрив живлення посеред запису не залишить огризок
         with tempfile.NamedTemporaryFile(

@@ -404,6 +404,64 @@ class TestCalendar(unittest.TestCase):
                                       token_provider=lambda **kw: "tok")
 
 
+class TestConcurrentState(unittest.TestCase):
+    """
+    Процесів два — ранковий дайджест і слухач кнопок, — і кожен тримає свою
+    копію стану. 19 вересня слухач, запущений десятьма днями раніше, записав
+    свій знімок і повернув курсор на десять днів назад.
+    """
+
+    def test_stale_writer_does_not_roll_the_cursor_back(self):
+        import tempfile
+        path = tempfile.mktemp(suffix=".json")
+        stale = State(path)                 # копія, взята «давно»
+        stale.set_cursor("work", 100, 42)
+        stale.save()
+
+        fresh = State(path)                 # ранковий запуск посунув курсор
+        fresh.set_cursor("work", 900, 42)
+        fresh.save()
+
+        stale.save()                        # застарілий процес записує своє
+        self.assertEqual(State(path).cursor("work").uid, 900)
+
+    def test_stale_writer_does_not_erase_new_drafts(self):
+        import tempfile
+        from datetime import datetime, timedelta, timezone
+        path = tempfile.mktemp(suffix=".json")
+        stale = State(path)
+        stale.save()
+
+        fresh = State(path)
+        start = datetime.now(timezone.utc) + timedelta(days=1)
+        event_id = fresh.put_pending_event(
+            title="бронювання", start=start.isoformat(),
+            end=start.isoformat(), source="work/1")
+        fresh.save()
+
+        stale.save()
+        self.assertIsNotNone(State(path).event(event_id),
+                             "чернетка нової події не має зникати")
+
+    def test_completed_status_wins_over_pending(self):
+        import tempfile
+        from datetime import datetime, timedelta, timezone
+        path = tempfile.mktemp(suffix=".json")
+        first = State(path)
+        start = datetime.now(timezone.utc) + timedelta(days=1)
+        event_id = first.put_pending_event(
+            title="подія", start=start.isoformat(), end=start.isoformat(),
+            source="work/1")
+        first.save()
+
+        other = State(path)
+        other.mark_event_created(event_id, "g1")
+        other.save()
+
+        first.save()   # у нього подія ще pending
+        self.assertEqual(State(path).event(event_id)["status"], "created")
+
+
 class TestStateGuards(unittest.TestCase):
     def test_cursor_never_moves_backwards(self):
         """Курсор, продиктований листом, назавжди сховав би пошту."""
