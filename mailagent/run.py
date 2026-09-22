@@ -332,6 +332,28 @@ def _summary(rendered, records, outcomes, budget, *, sent, cursors_moved
     }
 
 
+def _explain(exc: Exception) -> str:
+    """
+    Пояснення для людини, а не текст винятку.
+
+    «Спробуйте ще раз пізніше» — правильна порада лише для тимчасових
+    збоїв. При згаслому токені Google чекання не дає нічого: потрібна дія
+    людини, і сказати про це треба прямо, інакше вона тиснутиме кнопку
+    щодня й дивуватиметься.
+    """
+    text = str(exc).lower()
+    if "invalid_grant" in text or "token has been expired" in text:
+        return ("Доступ до Google Calendar згас — у режимі Testing токен живе "
+                "лише кілька днів. Чекати марно: перепідключіть доступ "
+                "(scripts/google_oauth.py) і натисніть кнопку ще раз.")
+    if "insufficient" in text or "quota" in text:
+        return "Вичерпано квоту Google API. Спробуйте за годину."
+    if "403" in text or "permission" in text:
+        return ("Google відмовив у доступі до календаря. Перевірте, що "
+                "GOOGLE_CALENDAR_ID указує на календар, створений застосунком.")
+    return f"{_short(exc)}\nСхоже на тимчасовий збій — спробуйте пізніше."
+
+
 def _short(exc: Exception) -> str:
     text = str(exc)
     return text[:120] + ("…" if len(text) > 120 else "")
@@ -380,8 +402,8 @@ def callback_run(update: dict[str, Any], *, state: State | None = None,
     except (ToolError, ToolRetryError) as exc:
         # Чернетку НЕ чіпаємо: коли власник перепідключить доступ,
         # кнопка має спрацювати з тими самими даними.
-        sender(f"⚠️ Не вдалося додати подію: {_short(exc)}\n"
-               f"Чернетка збережена — спробуйте ще раз пізніше.",
+        sender(f"⚠️ Не вдалося додати подію.\n\n{_explain(exc)}\n\n"
+               f"Чернетка збережена.",
                state=state, idempotency_key=f"cb-{event_id}-error-{int(time.time())}")
         return {"ok": False, "reason": "create_failed", "error": str(exc)}
 

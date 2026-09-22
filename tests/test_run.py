@@ -506,6 +506,40 @@ class TestCallback(unittest.TestCase):
         self.assertEqual(self.state.snapshot()["pending_events"][self.event_id]["status"],
                          "declined")
 
+    def test_expired_token_message_says_what_to_do(self):
+        """
+        «Спробуйте ще раз пізніше» при згаслому токені — шкідлива порада:
+        чекання не дає нічого, потрібна дія людини.
+        """
+        sent = []
+
+        def failing(event_id, *, state, **kwargs):
+            raise ToolError("google oauth: 400 invalid_grant — Token has been "
+                            "expired or revoked", status=400)
+
+        callback_run(
+            self.update(), state=self.state, owner_id=777, answer=self.answer,
+            creator=failing,
+            sender=lambda text, **kw: sent.append(text) or {"sent": True,
+                                                            "message_id": 1},
+            edit=lambda mid, markup: {"edited": True})
+        self.assertIn("перепідключіть доступ", sent[0].lower())
+        self.assertNotIn("спробуйте ще раз пізніше", sent[0].lower())
+
+    def test_transient_failure_still_says_try_later(self):
+        sent = []
+
+        def failing(event_id, *, state, **kwargs):
+            raise ToolError("503 service unavailable", status=503)
+
+        callback_run(
+            self.update(), state=self.state, owner_id=777, answer=self.answer,
+            creator=failing,
+            sender=lambda text, **kw: sent.append(text) or {"sent": True,
+                                                            "message_id": 1},
+            edit=lambda mid, markup: {"edited": True})
+        self.assertIn("тимчасовий збій", sent[0].lower())
+
     def test_failed_creation_keeps_draft(self):
         """Токен помер — чернетку не втрачаємо, кнопка має спрацювати пізніше."""
         sent: list[str] = []
